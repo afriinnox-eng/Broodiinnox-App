@@ -1,0 +1,18 @@
+# Render blueprint — Broodiinnox App (Remote Monitoring & Control)
+# Static site deployed from the GitHub repo. SPA rewrites to /index.html.
+services:
+  - type: web
+    name: broodiinnox-app
+    runtime: static
+    repo: https://github.com/afriinnox-eng/Broodiinnox-App
+    branch: main
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: sameorigin

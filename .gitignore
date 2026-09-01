@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# workspace documentation & helper scripts (not part of the app)
+_extracted/
+*.pdf
+_extract_pdfs.py
+_test_extraction.py
+.astra/ 
