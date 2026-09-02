@@ -1,16 +1,18 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { HashRouter } from 'react-router-dom';
 import App from './App.jsx';
 import { StoreProvider } from './lib/store.jsx';
 import './styles/global.css';
 
+// HashRouter: static hosts (Render) serve only `/`, so hash URLs keep every
+// route (refresh, deep link, share) working without server-side rewrites.
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <HashRouter>
       <StoreProvider>
         <App />
       </StoreProvider>
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>
 );
