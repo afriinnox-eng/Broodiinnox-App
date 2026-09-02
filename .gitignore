@@ -9,3 +9,17 @@ _extracted/
 _extract_pdfs.py
 _test_extraction.py
 .astra/ 
+_create_render.py 
+_deploy_render.py 
+_diag_render.py 
+_fix_render.py 
+_fix_routes.py 
+_probe_create.py 
+_render_brood.ps1 
+_spec.py 
+_status_render.py 
+_wait_deploy.py 
+_check_live.py 
+_body.json 
+_probe.json 
+_blueprint_render.py 
