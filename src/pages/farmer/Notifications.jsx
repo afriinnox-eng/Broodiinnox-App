@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
-import { Btn, Card, EmptyState, Field } from '../../components/ui.jsx';
+import { Btn, Card, EmptyState, Field, SevDot } from '../../components/ui.jsx';
 import { fmtDateTime } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
 
@@ -25,9 +25,9 @@ export default function FarmerNotifications() {
 
       <div className="grid cols-2" style={{ marginTop: 14 }}>
         <Card title="Notifications">
-          {mine.length === 0 ? <EmptyState icon="📨" text="No notifications." /> : mine.slice(0, 20).map((n) => (
+          {mine.length === 0 ? <EmptyState icon="mail" text="No notifications." /> : mine.slice(0, 20).map((n) => (
             <div key={n.id} className="alert-line" style={{ opacity: n.read ? 0.6 : 1, cursor: 'pointer' }} onClick={() => dispatch({ type: 'MARK_NOTIF_READ', id: n.id })}>
-              <span>{n.severity === 'critical' ? '🔴' : n.severity === 'warning' ? '🟠' : '🔵'}</span>
+              <SevDot severity={n.severity} />
               <div>
                 <div style={{ fontWeight: 700 }}>{n.title}</div>
                 <div className="muted small">{n.body}</div>
@@ -48,7 +48,7 @@ export default function FarmerNotifications() {
           </div>
           <div style={{ marginTop: 10 }}>
             <Btn small variant="green" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }}>
-              {saved ? 'Saved ✓' : 'Save preferences'}
+              {saved ? 'Saved' : 'Save preferences'}
             </Btn>
           </div>
         </Card>

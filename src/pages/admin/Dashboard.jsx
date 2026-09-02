@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Card, Stat, SeverityBadge, Badge } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { Donut, BarChart } from '../../components/charts.jsx';
 import { churnRisk, deviceStatus, subscriptionState, avgTemp } from '../../lib/services.js';
 import { fmtMoney } from '../../i18n/strings.js';
@@ -55,22 +56,22 @@ export default function AdminDashboard() {
       <p className="muted">Complete overview of the Broodiinnox network.</p>
 
       <div className="grid cols-4" style={{ margin: '14px 0' }}>
-        <Stat icon="👨‍🌾" label="Farmers" value={state.farmers.length} />
-        <Stat icon="🛠️" label="Systems" value={devices.length} />
-        <Stat icon="🟢" label="Online" value={online} tone="ok" />
-        <Stat icon="⚫" label="Offline" value={offline} />
+        <Stat icon="users" label="Farmers" value={state.farmers.length} />
+        <Stat icon="cpu" label="Systems" value={devices.length} />
+        <Stat icon="wifi" label="Online" value={online} tone="ok" />
+        <Stat icon="wifiOff" label="Offline" value={offline} />
       </div>
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
-        <Stat icon="🐣" label="Active batches" value={activeBatches} tone="green" />
-        <Stat icon="🔒" label="Expired subs" value={expiredSubs} tone="crit" />
-        <Stat icon="💵" label="Revenue today" value={fmtMoney(revenue(dayStart))} tone="green" />
-        <Stat icon="📅" label="Revenue this month" value={fmtMoney(revenue(monthStart))} tone="green" />
+        <Stat icon="egg" label="Active batches" value={activeBatches} tone="green" />
+        <Stat icon="lock" label="Expired subs" value={expiredSubs} tone="crit" />
+        <Stat icon="wallet" label="Revenue today" value={fmtMoney(revenue(dayStart))} tone="green" />
+        <Stat icon="calendar" label="Revenue this month" value={fmtMoney(revenue(monthStart))} tone="green" />
       </div>
       <div className="grid cols-4" style={{ marginBottom: 20 }}>
-        <Stat icon="🗓️" label="Revenue this year" value={fmtMoney(revenue(yearStart))} />
-        <Stat icon="⏳" label="Pending payments" value={pendingPayments} tone="warn" />
-        <Stat icon="🔴" label="Critical alerts" value={criticalAlerts} tone={criticalAlerts ? 'crit' : undefined} />
-        <Stat icon="🎫" label="Open tickets" value={openTickets} tone="warn" />
+        <Stat icon="chart" label="Revenue this year" value={fmtMoney(revenue(yearStart))} />
+        <Stat icon="clock" label="Pending payments" value={pendingPayments} tone="warn" />
+        <Stat icon="alert" label="Critical alerts" value={criticalAlerts} tone={criticalAlerts ? 'crit' : undefined} />
+        <Stat icon="ticket" label="Open tickets" value={openTickets} tone="warn" />
       </div>
 
       <div className="grid cols-2" style={{ marginBottom: 20 }}>
@@ -84,7 +85,7 @@ export default function AdminDashboard() {
 
       <div className="grid cols-2">
         <Card title="Churn risk — farmers needing follow-up">
-          {churn.length === 0 && <div className="muted">All farmers active 🎉</div>}
+          {churn.length === 0 && <div className="muted">No farmers need follow-up right now.</div>}
           {churn.map(({ farmer, risk }) => (
             <div key={farmer.id} className="row-between" style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
               <div>
@@ -98,7 +99,7 @@ export default function AdminDashboard() {
         <Card title="Recent activity (audit)">
           {state.audit.slice(0, 7).map((a) => (
             <div key={a.id} className="alert-line">
-              <span>{a.role === 'farmer' ? '👨‍🌾' : '🛡️'}</span>
+              <Icon name={a.role === 'farmer' ? 'users' : 'shield'} size={16} style={{ flex: 'none', marginTop: 2 }} />
               <div>
                 <div className="small" style={{ fontWeight: 600 }}><b>{a.user}</b> — {a.details}</div>
                 <div className="muted small">{fmtDateTime(a.at)}</div>

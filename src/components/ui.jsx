@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from './icons.jsx';
 
 export function Card({ title, actions, children, className = '' }) {
   return (
@@ -18,7 +19,7 @@ export function Stat({ icon, label, value, sub, tone }) {
   return (
     <div className="card stat">
       <div className="row">
-        <span className="stat-icon">{icon}</span>
+        {icon && <span className="stat-icon"><Icon name={icon} size={21} /></span>}
         <span className="stat-label">{label}</span>
       </div>
       <div className="stat-value" style={tone ? { color: `var(--${tone})` } : undefined}>{value}</div>
@@ -28,7 +29,12 @@ export function Stat({ icon, label, value, sub, tone }) {
 }
 
 const STATUS_TONE = { online: 'ok', offline: 'off', warning: 'warn', critical: 'crit', locked: 'off' };
-const STATUS_ICON = { online: '🟢', offline: '⚫', warning: '🟠', critical: '🔴', locked: '🔒' };
+
+const SEV_COLOR = { critical: 'var(--crit)', warning: 'var(--warn)', info: 'var(--info)' };
+
+export function SevDot({ severity }) {
+  return <span className="status-dot" style={{ background: SEV_COLOR[severity] || 'var(--off)' }} />;
+}
 
 export function StatusBadge({ status, label }) {
   const tone = STATUS_TONE[status] || 'off';
@@ -42,9 +48,8 @@ export function StatusBadge({ status, label }) {
 
 export function SeverityBadge({ severity, label }) {
   const tone = { critical: 'crit', warning: 'warn', info: 'info' }[severity] || 'info';
-  const icon = { critical: '🔴', warning: '🟠', info: '🔵' }[severity] || '🔵';
   return (
-    <span className={`badge ${tone}`}>{icon} {label || severity}</span>
+    <span className={`badge ${tone}`}><span className="status-dot" style={{ background: 'currentColor' }} /> {label || severity}</span>
   );
 }
 
@@ -71,7 +76,7 @@ export function Modal({ title, onClose, children, width }) {
       <div className="modal" style={width ? { maxWidth: width } : undefined} onClick={(e) => e.stopPropagation()}>
         <div className="row-between">
           <h3>{title}</h3>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={16} /></button>
         </div>
         {children}
       </div>
@@ -97,10 +102,10 @@ export function Progress({ value, tone = 'green' }) {
   );
 }
 
-export function EmptyState({ icon = '📭', text = 'Nothing here yet' }) {
+export function EmptyState({ icon = 'box', text = 'Nothing here yet' }) {
   return (
     <div className="empty">
-      <div style={{ fontSize: 34, marginBottom: 8 }}>{icon}</div>
+      <div className="empty-icon"><Icon name={icon} size={34} strokeWidth={1.6} /></div>
       <div>{text}</div>
     </div>
   );

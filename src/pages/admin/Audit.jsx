@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, downloadCsv, DataTable, Tabs } from '../../components/ui.jsx';
 import { fmtDateTime } from '../../lib/time.js';
+import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
 
 export default function AdminAudit() {
@@ -17,7 +18,7 @@ export default function AdminAudit() {
     <div>
       <div className="row-between">
         <h1>{t('nav.audit', lang)} <span className="pill">{state.audit.length}</span></h1>
-        <Btn small onClick={() => downloadCsv('broodiinnox-audit.csv', rows.map((a) => ({ User: a.user, Role: a.role, Action: a.action, Details: a.details, Date: fmtDateTime(a.at) })))}>⬇ Export CSV</Btn>
+        <Btn small onClick={() => downloadCsv('broodiinnox-audit.csv', rows.map((a) => ({ User: a.user, Role: a.role, Action: a.action, Details: a.details, Date: fmtDateTime(a.at) })))}><Icon name="download" size={15} /> Export CSV</Btn>
       </div>
       <p className="muted">Every important action is recorded — who, what, when, and the before/after values.</p>
       <div className="row" style={{ margin: '10px 0' }}>

@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { HashRouter, MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider, useStore } from '../lib/store.jsx';
@@ -32,6 +32,50 @@ function renderApp(initialEntries = ['/']) {
 
 beforeEach(() => {
   localStorage.clear();
+});
+
+describe('hash routing (production mode)', () => {
+  // The app ships with HashRouter so every route works on static hosts.
+  // Invariant: a cold start on a deep hash link must render the right page.
+  it('cold-starts on a farmer system hash link and renders that system', async () => {
+    window.location.hash = '#/farmer/systems/BRD006';
+    localStorage.setItem(KEY, JSON.stringify(seedWithSession({ id: 'f5', name: 'Patrick Habimana', role: 'farmer', phone: '0788555666' })));
+    render(
+      <HashRouter>
+        <StoreProvider>
+          <App />
+        </StoreProvider>
+      </HashRouter>
+    );
+    expect(await screen.findByText(/Broodiinnox — Muhazi Unit/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/device locked/i).length).toBeGreaterThan(0);
+  });
+
+  it('cold-starts on the admin dashboard hash link and shows KPIs', async () => {
+    window.location.hash = '#/admin/dashboard';
+    localStorage.setItem(KEY, JSON.stringify(seedWithSession({ id: 'a1', name: 'Innocent Ingabire', role: 'admin', adminRole: 'super', email: 'admin@afriinnox.com' })));
+    render(
+      <HashRouter>
+        <StoreProvider>
+          <App />
+        </StoreProvider>
+      </HashRouter>
+    );
+    expect(await screen.findByText(/Revenue today/i)).toBeInTheDocument();
+  });
+
+  it('unknown hash paths fall back to the role home, never a blank page', async () => {
+    window.location.hash = '#/farmer/does-not-exist';
+    localStorage.setItem(KEY, JSON.stringify(seedWithSession({ id: 'f1', name: 'Jean Damascene', role: 'farmer', phone: '0788123456' })));
+    render(
+      <HashRouter>
+        <StoreProvider>
+          <App />
+        </StoreProvider>
+      </HashRouter>
+    );
+    expect(await screen.findByText(/Dashboard, Jean/i)).toBeInTheDocument();
+  });
 });
 
 describe('login & roles', () => {

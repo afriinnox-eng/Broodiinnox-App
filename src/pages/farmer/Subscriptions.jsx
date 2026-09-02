@@ -3,6 +3,7 @@ import { useStore } from '../../lib/store.jsx';
 import { subscriptionState } from '../../lib/services.js';
 import { fmtDate, fmtDateTime, timeAgo } from '../../lib/time.js';
 import { Badge, Btn, Card, EmptyState } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import PayModal from '../../components/PayModal.jsx';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
@@ -23,7 +24,7 @@ export default function FarmerSubscriptions() {
 
       {expiredLocked.length > 0 && (
         <div className="warn-banner" style={{ margin: '12px 0' }}>
-          🔒 <div><b>{expiredLocked.length} system(s) are locked</b> because their subscription lapsed. Renew below to unlock instantly after MoMo confirmation.</div>
+          <Icon name="lock" size={20} /> <div><b>{expiredLocked.length} system(s) are locked</b> because their subscription lapsed. Renew below to unlock instantly after MoMo confirmation.</div>
         </div>
       )}
 
@@ -38,7 +39,7 @@ export default function FarmerSubscriptions() {
       </div>
 
       <h3 style={{ marginTop: 20 }}>Your subscriptions</h3>
-      {myDevices.length === 0 && <EmptyState icon="💳" text="No systems yet." />}
+      {myDevices.length === 0 && <EmptyState icon="card" text="No systems yet." />}
       <div className="grid cols-2">
         {myDevices.map((d) => {
           const sub = d.subscription;
@@ -59,10 +60,10 @@ export default function FarmerSubscriptions() {
                 </div>
                 {active ? <Badge tone={daysLeft <= 7 ? 'warn' : 'ok'}>{daysLeft} days left</Badge> : <Badge tone="crit">Locked</Badge>}
               </div>
-              {active && daysLeft <= 7 && <div className="warn-banner" style={{ marginTop: 8 }}>⏳ Renew soon to avoid locking.</div>}
+              {active && daysLeft <= 7 && <div className="warn-banner" style={{ marginTop: 8 }}><Icon name="clock" size={18} /><div>Renew soon to avoid locking.</div></div>}
               <div style={{ marginTop: 10 }}>
                 <Btn variant={active ? 'primary' : 'green'} small onClick={() => setPayFor(d)}>
-                  {active ? 'Renew / extend' : '🔓 Renew & unlock'}
+                  {active ? 'Renew / extend' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="unlock" size={15} /> Renew & unlock</span>}
                 </Btn>
               </div>
             </Card>
@@ -71,7 +72,7 @@ export default function FarmerSubscriptions() {
       </div>
 
       <h3 style={{ marginTop: 20 }}>Payment history</h3>
-      {state.payments.filter((p) => p.farmerId === state.session.id).length === 0 ? <EmptyState icon="💰" text="No payments yet." /> : (
+      {state.payments.filter((p) => p.farmerId === state.session.id).length === 0 ? <EmptyState icon="wallet" text="No payments yet." /> : (
         <div className="table-wrap">
           <table>
             <thead><tr><th>Date</th><th>System</th><th>Plan</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>

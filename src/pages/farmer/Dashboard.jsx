@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useStore } from '../../lib/store.jsx';
 import { SystemCard } from '../../components/SystemCard.jsx';
 import { Card, Stat, SeverityBadge, EmptyState } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { deviceStatus, avgTemp, batchRemaining } from '../../lib/services.js';
 import { fmtDateTime, timeAgo } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
@@ -21,26 +22,26 @@ export default function FarmerDashboard() {
 
   return (
     <div>
-      <h1>{t('nav.dashboard', lang)}, {me.name.split(' ')[0]} 👋</h1>
+      <h1>{t('nav.dashboard', lang)}, {me.name.split(' ')[0]}</h1>
       <p className="muted">Here is how your chicks are doing right now.</p>
 
       <div className="grid cols-4" style={{ margin: '16px 0' }}>
-        <Stat icon="🛠️" label="Systems" value={devices.length} />
-        <Stat icon="🟢" label="Online" value={online} tone="ok" />
-        <Stat icon="🔴" label="Attention" value={attention} tone={attention ? 'crit' : undefined} />
-        <Stat icon="🐣" label="Active batches" value={activeBatches} tone="green" />
+        <Stat icon="cpu" label="Systems" value={devices.length} />
+        <Stat icon="wifi" label="Online" value={online} tone="ok" />
+        <Stat icon="alert" label="Attention" value={attention} tone={attention ? 'crit' : undefined} />
+        <Stat icon="egg" label="Active batches" value={activeBatches} tone="green" />
       </div>
 
       <div className="grid cols-2" style={{ marginBottom: 20 }}>
         <Card title="My systems">
-          {devices.length === 0 && <EmptyState icon="🛠️" text="No systems assigned yet. Contact Afriinnox." />}
+          {devices.length === 0 && <EmptyState icon="cpu" text="No systems assigned yet. Contact Afriinnox." />}
           <div className="grid cols-2" style={{ gap: 12 }}>
             {devices.map((d) => <SystemCard key={d.id} device={d} lang={lang} />)}
           </div>
         </Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Card title="Recent alerts">
-            {alerts.length === 0 && <div className="muted">All clear ✨</div>}
+            {alerts.length === 0 && <div className="muted">All clear</div>}
             {alerts.map((a) => (
               <div key={a.id} className="alert-line">
                 <SeverityBadge severity={a.severity} />
@@ -50,14 +51,14 @@ export default function FarmerDashboard() {
                 </div>
               </div>
             ))}
-            <Link to="/farmer/alerts" className="btn small" style={{ marginTop: 8 }}>View all alerts →</Link>
+            <Link to="/farmer/alerts" className="btn small" style={{ marginTop: 8 }}>View all alerts <Icon name="chevronRight" size={14} /></Link>
           </Card>
           <Card title="Quick actions">
             <div className="btn-row">
-              <Link to="/farmer/batches" className="btn green small">🐣 Start a batch</Link>
-              <Link to="/farmer/subscriptions" className="btn primary small">💳 Renew subscription</Link>
-              <Link to="/farmer/support" className="btn small">🆘 Get support</Link>
-              <Link to="/farmer/tips" className="btn small">📖 Brooding tips</Link>
+              <Link to="/farmer/batches" className="btn green small"><Icon name="egg" size={15} /> Start a batch</Link>
+              <Link to="/farmer/subscriptions" className="btn primary small"><Icon name="card" size={15} /> Renew subscription</Link>
+              <Link to="/farmer/support" className="btn small"><Icon name="help" size={15} /> Get support</Link>
+              <Link to="/farmer/tips" className="btn small"><Icon name="book" size={15} /> Brooding tips</Link>
             </div>
           </Card>
         </div>

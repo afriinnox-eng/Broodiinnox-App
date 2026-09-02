@@ -20,10 +20,10 @@ export default function FarmerAlerts() {
         <Btn small onClick={() => dispatch({ type: 'MARK_ALL_ALERTS_READ' })}>Mark all read</Btn>
       </div>
       <Tabs
-        tabs={[{ key: 'all', label: 'All' }, { key: 'critical', label: '🔴 Critical' }, { key: 'warning', label: '🟠 Warning' }, { key: 'info', label: '🔵 Info' }]}
+        tabs={[{ key: 'all', label: 'All' }, { key: 'critical', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="status-dot crit" />Critical</span> }, { key: 'warning', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="status-dot warn" />Warning</span> }, { key: 'info', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span className="status-dot info" />Info</span> }]}
         active={filter} onChange={setFilter}
       />
-      {shown.length === 0 ? <EmptyState icon="🔔" text="No alerts here." /> :
+      {shown.length === 0 ? <EmptyState icon="bell" text="No alerts here." /> :
         shown.map((a) => (
           <div key={a.id} className="alert-line" style={{ opacity: a.read ? 0.65 : 1 }}>
             <SeverityBadge severity={a.severity} />

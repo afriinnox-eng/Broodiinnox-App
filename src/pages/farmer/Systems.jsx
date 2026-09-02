@@ -13,7 +13,7 @@ export default function FarmerSystems() {
       <h1>{t('nav.systems', lang)}</h1>
       <p className="muted">Each Broodiinnox system assigned to your account. Click a card to monitor and control it.</p>
       {devices.length === 0 ? (
-        <EmptyState icon="🛠️" text="No systems assigned yet — contact your Afriinnox provider." />
+        <EmptyState icon="cpu" text="No systems assigned yet — contact your Afriinnox provider." />
       ) : (
         <div className="grid cols-2" style={{ marginTop: 16 }}>
           {devices.map((d) => <SystemCard key={d.id} device={d} lang={lang} />)}

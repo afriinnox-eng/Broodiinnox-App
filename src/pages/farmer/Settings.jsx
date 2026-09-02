@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Btn, Card, Field } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { LANGS, t } from '../../i18n/strings.js';
 
 export default function FarmerSettings() {
@@ -30,7 +31,7 @@ export default function FarmerSettings() {
           <Field label="Full name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Phone number"><input value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
           <Field label="Email"><input value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-          <Btn variant="primary" onClick={save}>{saved ? 'Saved ✓' : 'Save changes'}</Btn>
+          <Btn variant="primary" onClick={save}>{saved ? 'Saved' : 'Save changes'}</Btn>
         </Card>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -49,8 +50,8 @@ export default function FarmerSettings() {
             </div>
             <div className="row-between" style={{ marginTop: 10 }}>
               <span>Dark mode</span>
-              <button className="icon-btn" onClick={() => dispatch({ type: 'SET_THEME', theme: state.theme === 'dark' ? 'light' : 'dark' })}>
-                {state.theme === 'dark' ? '🌙' : '☀️'}
+              <button className="icon-btn" onClick={() => dispatch({ type: 'SET_THEME', theme: state.theme === 'dark' ? 'light' : 'dark' })} title="Toggle theme">
+                <Icon name={state.theme === 'dark' ? 'sun' : 'moon'} size={18} />
               </button>
             </div>
           </Card>

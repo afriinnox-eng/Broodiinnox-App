@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, Card, DataTable, downloadCsv, Stat } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
@@ -32,10 +33,10 @@ export default function AdminPayments() {
     <div>
       <h1>{t('nav.payments', lang)}</h1>
       <div className="grid cols-4" style={{ margin: '14px 0' }}>
-        <Stat icon="💵" label="Revenue today" value={fmtMoney(rev(dayStart))} tone="green" />
-        <Stat icon="📅" label="Revenue this month" value={fmtMoney(rev(monthStart))} tone="green" />
-        <Stat icon="✅" label="Successful txs" value={successful.length} tone="ok" />
-        <Stat icon="⏳" label="Pending / failed" value={`${pending} / ${failed}`} tone={pending ? 'warn' : undefined} />
+        <Stat icon="wallet" label="Revenue today" value={fmtMoney(rev(dayStart))} tone="green" />
+        <Stat icon="calendar" label="Revenue this month" value={fmtMoney(rev(monthStart))} tone="green" />
+        <Stat icon="checkCircle" label="Successful txs" value={successful.length} tone="ok" />
+        <Stat icon="clock" label="Pending / failed" value={`${pending} / ${failed}`} tone={pending ? 'warn' : undefined} />
       </div>
 
       <div className="row-between">
@@ -45,7 +46,7 @@ export default function AdminPayments() {
             {['successful', 'pending', 'failed', 'cancelled', 'refunded'].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        <Btn small onClick={() => downloadCsv('broodiinnox-payments.csv', exportRows)}>⬇ Export CSV</Btn>
+        <Btn small onClick={() => downloadCsv('broodiinnox-payments.csv', exportRows)}><Icon name="download" size={15} /> Export CSV</Btn>
       </div>
 
       <div style={{ marginTop: 12 }}>

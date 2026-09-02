@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { maintenanceDue } from '../../lib/services.js';
 import { Badge, Btn, Card, DataTable, Field, Modal } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { fmtDate } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
 
@@ -22,7 +23,7 @@ export default function AdminMaintenance() {
 
       {due.length > 0 && (
         <div className="warn-banner" style={{ margin: '12px 0' }}>
-          🔧 <div><b>{due.length} system(s) need servicing.</b> Afriinnox is alerted automatically when a system is due — assign a technician below.</div>
+          <Icon name="wrench" size={20} /> <div><b>{due.length} system(s) need servicing.</b> Afriinnox is alerted automatically when a system is due — assign a technician below.</div>
         </div>
       )}
 

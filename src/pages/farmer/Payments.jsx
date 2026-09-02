@@ -21,7 +21,7 @@ export default function FarmerPayments() {
       </div>
       <p className="muted">Pay subscriptions directly with MTN Mobile Money. Payments are verified with the provider before a device unlocks.</p>
 
-      {myPayments.length === 0 ? <EmptyState icon="💰" text="No payments yet." /> : (
+      {myPayments.length === 0 ? <EmptyState icon="wallet" text="No payments yet." /> : (
         <div className="table-wrap" style={{ marginTop: 14 }}>
           <table>
             <thead><tr><th>Date</th><th>System</th><th>Plan / period</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead>
@@ -35,7 +35,7 @@ export default function FarmerPayments() {
                   <td>{p.method} <span className="muted small">{p.phone}</span></td>
                   <td>
                     <Badge tone={{ successful: 'ok', pending: 'warn', failed: 'crit', cancelled: 'off' }[p.status] || 'off'}>
-                      {p.status === 'successful' ? 'Successful ✓' : p.status}
+                      {p.status === 'successful' ? 'Successful' : p.status}
                     </Badge>
                     {p.providerRef && <div className="muted small">{p.providerRef}</div>}
                     {p.status === 'pending' && <div className="muted small">waiting for provider…</div>}

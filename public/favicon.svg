@@ -1,5 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#1c3a96"/>
-  <path d="M14 44 L26 20 L32 32 L38 20 L50 44 H40 L36 36 L32 46 L28 36 L24 44 Z" fill="#ffffff"/>
-  <circle cx="50" cy="14" r="6" fill="#3d5d30"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2546a8"/>
+      <stop offset="1" stop-color="#12266a"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- activity / growth bars -->
+  <rect x="13" y="38" width="9" height="13" rx="3" fill="#ffffff" opacity="0.9"/>
+  <rect x="27.5" y="27" width="9" height="24" rx="3" fill="#ffffff" opacity="0.9"/>
+  <rect x="42" y="16" width="9" height="35" rx="3" fill="#ffffff"/>
+  <circle cx="55" cy="15" r="6.5" fill="#7fb069"/>
 </svg>

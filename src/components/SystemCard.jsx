@@ -5,6 +5,7 @@ import { avgTemp, batchDay, batchRemaining, deviceLocked, deviceStatus, stepDown
 import { ANIMALS } from '../lib/presets.js';
 import { fmtDate, timeAgo } from '../lib/time.js';
 import { StatusBadge } from './ui.jsx';
+import { Icon } from './icons.jsx';
 
 export function SystemCard({ device, lang }) {
   const { state } = useStore();
@@ -47,14 +48,14 @@ export function SystemCard({ device, lang }) {
         </div>
         <div>
           <div className="muted small">Heater</div>
-          <div style={{ fontWeight: 700 }}>{device.heaterOn ? '🔥 ON' : 'OFF'}</div>
+          <div style={{ fontWeight: 700 }}>{device.heaterOn ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="flame" size={14} /> ON</span> : 'OFF'}</div>
         </div>
         <div>
           <div className="muted small">Subscription</div>
           {sub?.status === 'active' && !locked ? (
             <div style={{ color: 'var(--ok)', fontWeight: 700 }}>Active · expires {fmtDate(sub.endDate)}</div>
           ) : (
-            <div style={{ color: 'var(--crit)', fontWeight: 700 }}>{locked ? '🔒 Locked' : 'No subscription'}</div>
+            <div style={{ color: 'var(--crit)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="lock" size={13} /> Locked</div>
           )}
         </div>
       </div>
@@ -64,7 +65,7 @@ export function SystemCard({ device, lang }) {
           <span className="status-dot ok" style={{ opacity: status === 'online' ? 1 : 0.25 }} />
           {status === 'online' ? `${lang === 'fr' ? 'Mis à jour' : 'Updated'} ${timeAgo(device.lastSeen)} ${lang === 'fr' ? 'il y a' : 'ago'}` : `Last seen ${timeAgo(device.lastSeen)} ago`}
         </span>
-        <span className="btn small primary">{lang === 'fr' ? 'Ouvrir' : lang === 'rw' ? 'Fungura' : 'Open'} →</span>
+        <span className="btn small primary">{lang === 'fr' ? 'Ouvrir' : lang === 'rw' ? 'Fungura' : 'Open'} <Icon name="chevronRight" size={14} /></span>
       </div>
     </div>
   );

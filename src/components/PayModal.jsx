@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { Badge, Btn, Field, Modal } from './ui.jsx';
+import { Icon } from './icons.jsx';
 import { fmtMoney } from '../i18n/strings.js';
 
 /** MTN MoMo payment modal — shared by the farmer Subscriptions and Payments pages. */
@@ -16,7 +17,7 @@ export default function PayModal({ device, onClose }) {
     setSending(true);
     dispatch({ type: 'REQUEST_PAYMENT', farmerId: state.session.id, deviceId: device.id, planId, phone });
     setTimeout(() => {
-      dispatch({ type: 'TOAST', msg: 'MoMo payment requested — confirm on your phone 📲' });
+      dispatch({ type: 'TOAST', msg: 'MoMo payment requested — confirm on your phone.' });
       onClose();
     }, 400);
   };
@@ -25,7 +26,8 @@ export default function PayModal({ device, onClose }) {
     <Modal title={`Pay for ${device.name} (${device.serial})`} onClose={onClose}>
       {pending && (
         <div className="warn-banner" style={{ marginBottom: 12 }}>
-          ⏳ A payment is already pending for this system. It will be confirmed by MTN MoMo shortly.
+          <Icon name="clock" size={18} />
+          <div>A payment is already pending for this system. It will be confirmed by MTN MoMo shortly.</div>
         </div>
       )}
       <Field label="Subscription plan">
@@ -47,7 +49,7 @@ export default function PayModal({ device, onClose }) {
         the app never unlocks a system just because a button was pressed.
       </p>
       <div className="btn-row">
-        <Btn variant="green" onClick={pay} disabled={sending}>{sending ? 'Sending…' : '📲 Request MoMo payment'}</Btn>
+        <Btn variant="green" onClick={pay} disabled={sending}>{sending ? 'Sending…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="send" size={15} /> Request MoMo payment</span>}</Btn>
         <Btn onClick={onClose}>Cancel</Btn>
       </div>
       <div style={{ marginTop: 10 }}><Badge tone="info">Method: MTN Mobile Money</Badge></div>

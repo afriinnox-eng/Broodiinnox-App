@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, DataTable, Field, Modal } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
 
 export default function AdminInventory() {
@@ -23,7 +24,7 @@ export default function AdminInventory() {
 
       {low.length > 0 && (
         <div className="warn-banner" style={{ margin: '12px 0' }}>
-          📦 <div><b>{low.length} item(s) below minimum stock</b> — order soon so field maintenance is never delayed.</div>
+          <Icon name="box" size={20} /> <div><b>{low.length} item(s) below minimum stock</b> — order soon so field maintenance is never delayed.</div>
         </div>
       )}
 

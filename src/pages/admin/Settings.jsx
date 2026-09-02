@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Btn, Card, Field } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { LANGS, t } from '../../i18n/strings.js';
 
 export default function AdminSettings() {
@@ -26,8 +27,8 @@ export default function AdminSettings() {
           </div>
           <div className="row-between" style={{ marginTop: 10 }}>
             <span>Dark mode</span>
-            <button className="icon-btn" onClick={() => dispatch({ type: 'SET_THEME', theme: state.theme === 'dark' ? 'light' : 'dark' })}>
-              {state.theme === 'dark' ? '🌙' : '☀️'}
+            <button className="icon-btn" onClick={() => dispatch({ type: 'SET_THEME', theme: state.theme === 'dark' ? 'light' : 'dark' })} title="Toggle theme">
+              <Icon name={state.theme === 'dark' ? 'sun' : 'moon'} size={18} />
             </button>
           </div>
           <Btn small variant="primary" style={{ marginTop: 14 }} onClick={() => dispatch({ type: 'TOAST', msg: 'Settings saved (demo).' })}>Save settings</Btn>

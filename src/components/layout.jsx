@@ -3,18 +3,20 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store.jsx';
 import { LANGS, t } from '../i18n/strings.js';
 import { fmtDateTime } from '../lib/time.js';
+import { Icon } from './icons.jsx';
+import { SevDot } from './ui.jsx';
 
 const FARMER_NAV = [
-  ['dashboard', '📊'], ['systems', '🛠️'], ['batches', '🐣'], ['alerts', '🔔'],
-  ['subscriptions', '💳'], ['payments', '💰'], ['support', '🆘'], ['notifications', '📨'],
-  ['tips', '📖'], ['settings', '⚙️'],
+  ['dashboard', 'grid'], ['systems', 'cpu'], ['batches', 'egg'], ['alerts', 'bell'],
+  ['subscriptions', 'card'], ['payments', 'wallet'], ['support', 'help'], ['notifications', 'mail'],
+  ['tips', 'book'], ['settings', 'sliders'],
 ];
 
 const ADMIN_NAV = [
-  ['dashboard', '📊'], ['farmers', '👨‍🌾'], ['devices', '🛠️'], ['live', '📡'], ['map', '🗺️'],
-  ['batches', '🐣'], ['subscriptions', '💳'], ['payments', '💰'], ['reports', '📈'],
-  ['alerts', '🔔'], ['tickets', '🎫'], ['messages', '✉️'], ['admins', '👤'], ['audit', '🧾'],
-  ['maintenance', '🔧'], ['inventory', '📦'], ['settings', '⚙️'],
+  ['dashboard', 'grid'], ['farmers', 'users'], ['devices', 'cpu'], ['live', 'pulse'], ['map', 'pin'],
+  ['batches', 'egg'], ['subscriptions', 'card'], ['payments', 'wallet'], ['reports', 'chart'],
+  ['alerts', 'bell'], ['tickets', 'ticket'], ['messages', 'mail'], ['admins', 'shield'], ['audit', 'file'],
+  ['maintenance', 'wrench'], ['inventory', 'box'], ['settings', 'sliders'],
 ];
 
 function NavSection({ section, items, base, lang }) {
@@ -23,7 +25,7 @@ function NavSection({ section, items, base, lang }) {
       <div className="nav-section">{section}</div>
       {items.map(([key, icon]) => (
         <NavLink key={key} to={`${base}/${key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-          <span>{icon}</span> {t(`nav.${key}`, lang)}
+          <Icon name={icon} size={18} /> {t(`nav.${key}`, lang)}
         </NavLink>
       ))}
     </>
@@ -40,8 +42,8 @@ function GlobalSearch({ role }) {
     const needle = q.toLowerCase();
     const farmers = state.farmers.filter((f) => `${f.name} ${f.phone} ${f.email}`.toLowerCase().includes(needle));
     const devices = state.devices.filter((d) => `${d.serial} ${d.name} ${d.location?.district}`.toLowerCase().includes(needle));
-    return [...farmers.slice(0, 4).map((f) => ({ label: `👨‍🌾 ${f.name} · ${f.phone}`, to: `/${role}/farmers/${f.id}` })),
-      ...devices.slice(0, 4).map((d) => ({ label: `🛠️ ${d.serial} — ${d.name}`, to: `/${role}/systems/${d.id}` }))];
+    return [...farmers.slice(0, 4).map((f) => ({ label: <span className="row" style={{ gap: 8 }}><Icon name="users" size={15} />{f.name} · {f.phone}</span>, to: `/${role}/farmers/${f.id}` })),
+      ...devices.slice(0, 4).map((d) => ({ label: <span className="row" style={{ gap: 8 }}><Icon name="cpu" size={15} />{d.serial} — {d.name}</span>, to: `/${role}/systems/${d.id}` }))];
   }, [q, state]);
   if (role !== 'admin') return null;
   return (
@@ -71,8 +73,8 @@ function NotificationBell({ role }) {
   const unread = role === 'farmer' ? items.filter((n) => !n.read).length : items.length;
   return (
     <div style={{ position: 'relative' }}>
-      <button className="icon-btn" onClick={() => setOpen(!open)}>
-        🔔 {unread > 0 && <span className="dot-badge">{unread}</span>}
+      <button className="icon-btn" onClick={() => setOpen(!open)} title="Notifications">
+        <Icon name="bell" size={18} /> {unread > 0 && <span className="dot-badge">{unread}</span>}
       </button>
       {open && (
         <div className="card" style={{ position: 'absolute', right: 0, top: 46, width: 320, zIndex: 60, maxHeight: 400, overflowY: 'auto' }}>
@@ -82,10 +84,10 @@ function NotificationBell({ role }) {
               Mark all read
             </button>
           </div>
-          {items.length === 0 && <div className="muted small" style={{ padding: 12 }}>All clear ✨</div>}
+          {items.length === 0 && <div className="muted small" style={{ padding: 12 }}>All clear</div>}
           {items.map((n) => (
             <div key={n.id} className="alert-line" style={{ opacity: n.read ? 0.6 : 1 }}>
-              <span>{n.severity === 'critical' ? '🔴' : n.severity === 'warning' ? '🟠' : '🔵'}</span>
+              <SevDot severity={n.severity} />
               <div>
                 <div style={{ fontWeight: 700, fontSize: 12.5 }}>{n.title || n.message}</div>
                 {n.body && <div className="muted small">{n.body}</div>}
@@ -123,7 +125,7 @@ export default function AppShell({ children }) {
         <NavSection section={role === 'admin' ? 'Afriinnox Admin' : 'Farmer App'} items={nav} base={base} lang={lang} />
         <div className="spacer" />
         <div className="nav-item" onClick={() => { dispatch({ type: 'LOGOUT' }); navigate('/'); }}>
-          <span>🚪</span> {t('common.logout', lang)}
+          <Icon name="logout" size={18} /> {t('common.logout', lang)}
         </div>
       </aside>
       <div>
@@ -136,7 +138,7 @@ export default function AppShell({ children }) {
             {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
           </select>
           <button className="icon-btn" title="Toggle theme" onClick={() => dispatch({ type: 'SET_THEME', theme: state.theme === 'dark' ? 'light' : 'dark' })}>
-            {state.theme === 'dark' ? '☀️' : '🌙'}
+            <Icon name={state.theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>
           <NotificationBell role={role} />
           <div className="chip">{state.session?.name}</div>

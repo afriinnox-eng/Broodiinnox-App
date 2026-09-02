@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { LANGS, t } from '../i18n/strings.js';
+import { Icon } from '../components/icons.jsx';
 
 export default function Login() {
   const { state, dispatch } = useStore();
@@ -45,6 +46,16 @@ export default function Login() {
           Monitor temperature, manage batches, control your brooding systems remotely and keep your chicks,
           ducklings, poults and piglets safe — from anywhere with signal.
         </p>
+        <div className="row" style={{ gap: 20, margin: '6px 0 4px' }}>
+          {[['cpu', 'Four sensors per system'], ['flame', 'Automatic failsafe heating'], ['wifi', 'Remote control & live alerts'], ['card', 'MTN MoMo subscriptions']].map(([ic, tx]) => (
+            <div key={ic} className="row" style={{ gap: 8, fontSize: 12.5, lineHeight: 1.35, alignItems: 'flex-start', maxWidth: 130 }}>
+              <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,255,255,0.14)', display: 'grid', placeItems: 'center', flex: 'none' }}>
+                <Icon name={ic} size={17} />
+              </span>
+              <span style={{ opacity: 0.95 }}>{tx}</span>
+            </div>
+          ))}
+        </div>
         <div className="row" style={{ gap: 8 }}>
           {['en', 'fr', 'rw'].map((c) => (
             <button key={c} className="btn" style={{ background: lang === c ? '#fff' : 'rgba(255,255,255,0.15)', color: lang === c ? '#1c3a96' : '#fff', borderColor: 'transparent' }}
@@ -58,8 +69,8 @@ export default function Login() {
       <div style={{ display: 'grid', placeItems: 'center', padding: 32 }}>
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div className="tabs" style={{ borderBottom: 'none', justifyContent: 'center', marginBottom: 20 }}>
-            <div className={`tab ${isFarmer ? 'active' : ''}`} style={{ fontSize: 15 }} onClick={() => setMode('farmer')}>👨‍🌾 {t('login.farmer', lang)}</div>
-            <div className={`tab ${!isFarmer ? 'active' : ''}`} style={{ fontSize: 15 }} onClick={() => setMode('admin')}>🏢 {t('login.admin', lang)}</div>
+            <div className={`tab ${isFarmer ? 'active' : ''}`} style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 7 }} onClick={() => setMode('farmer')}><Icon name="users" size={17} /> {t('login.farmer', lang)}</div>
+            <div className={`tab ${!isFarmer ? 'active' : ''}`} style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 7 }} onClick={() => setMode('admin')}><Icon name="shield" size={17} /> {t('login.admin', lang)}</div>
           </div>
           <h2 style={{ textAlign: 'center' }}>{t('login.title', lang)}</h2>
           <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>{t('login.subtitle', lang)}</p>
@@ -84,11 +95,11 @@ export default function Login() {
           </div>
 
           <div className="grid cols-2">
-            <button className="btn" onClick={() => doLogin(isFarmer ? { id: 'f1', name: 'Jean Damascene', role: 'farmer', phone: '0788123456' } : { id: 'a1', name: 'Innocent Ingabire', role: 'admin', adminRole: 'super', email: 'admin@afriinnox.com' })}>
-              {isFarmer ? '👨‍🌾' : '🛡️'} {t(isFarmer ? 'login.demoFarmer' : 'login.demoAdmin', lang)}
+            <button className="btn" style={{ justifyContent: 'center' }} onClick={() => doLogin(isFarmer ? { id: 'f1', name: 'Jean Damascene', role: 'farmer', phone: '0788123456' } : { id: 'a1', name: 'Innocent Ingabire', role: 'admin', adminRole: 'super', email: 'admin@afriinnox.com' })}>
+              <Icon name={isFarmer ? 'users' : 'shield'} size={16} /> {t(isFarmer ? 'login.demoFarmer' : 'login.demoAdmin', lang)}
             </button>
-            <button className="btn" onClick={() => doLogin(isFarmer ? { id: 'f2', name: 'Clarisse Uwera', role: 'farmer', phone: '0788222333' } : { id: 'a2', name: 'Grace Uwase', role: 'admin', adminRole: 'operations', email: 'ops@afriinnox.com' })}>
-              {isFarmer ? '👩‍🌾' : '🛡️'} {isFarmer ? 'Clarisse' : 'Ops Admin'}
+            <button className="btn" style={{ justifyContent: 'center' }} onClick={() => doLogin(isFarmer ? { id: 'f2', name: 'Clarisse Uwera', role: 'farmer', phone: '0788222333' } : { id: 'a2', name: 'Grace Uwase', role: 'admin', adminRole: 'operations', email: 'ops@afriinnox.com' })}>
+              <Icon name="user" size={16} /> {isFarmer ? 'Clarisse' : 'Ops Admin'}
             </button>
           </div>
           <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>{t('login.demoHint', lang)}</p>

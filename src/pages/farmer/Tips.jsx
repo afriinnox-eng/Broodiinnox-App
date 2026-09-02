@@ -2,25 +2,26 @@ import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { ANIMALS } from '../../lib/presets.js';
 import { Card, EmptyState, Tabs } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
 
 const GUIDES = {
   chicken: [
-    ['Day 1–7', 'Keep the box at 35–37°C. Chicks should spread evenly — if they huddle under the lamp it is too cold; if they spread to the walls it is too hot.', '💡'],
-    ['Day 8–14', 'Drop the target by about 1°C. Watch for droppings and keep bedding dry to avoid disease.', '🧹'],
-    ['Day 15–21', 'Continue lowering heat gradually. Open ventilation a little during the day. Prepare the grow-out pen.', '🌬️'],
+    ['Day 1–7', 'Keep the box at 35–37°C. Chicks should spread evenly — if they huddle under the lamp it is too cold; if they spread to the walls it is too hot.'],
+    ['Day 8–14', 'Drop the target by about 1°C. Watch for droppings and keep bedding dry to avoid disease.'],
+    ['Day 15–21', 'Continue lowering heat gradually. Open ventilation a little during the day. Prepare the grow-out pen.'],
   ],
   duck: [
-    ['Day 1–7', 'Ducklings like 33–35°C. They drink a lot — keep water topped up and away from the heat lamp.', '💧'],
-    ['Day 8–28', 'Reduce heat each week. Ducklings are cold-hardy, but drafts still kill — keep the box shielded.', '🛡️'],
+    ['Day 1–7', 'Ducklings like 33–35°C. They drink a lot — keep water topped up and away from the heat lamp.'],
+    ['Day 8–28', 'Reduce heat each week. Ducklings are cold-hardy, but drafts still kill — keep the box shielded.'],
   ],
   turkey: [
-    ['Day 1–7', 'Poults need 34–36°C and zero drafts. Use clean litter and check them twice a day.', '🌡️'],
-    ['Day 8–28', 'Step heat down weekly. Turkeys grow fast — give them space before they crowd.', '📈'],
+    ['Day 1–7', 'Poults need 34–36°C and zero drafts. Use clean litter and check them twice a day.'],
+    ['Day 8–28', 'Step heat down weekly. Turkeys grow fast — give them space before they crowd.'],
   ],
   pig: [
-    ['Day 1–7', 'Piglets need 30–32°C. They pile up when cold — if you see a pile, raise the heat.', '🐖'],
-    ['Day 8–21', 'Lower heat weekly. Keep the creep area clean and dry; add fresh straw daily.', '🧺'],
+    ['Day 1–7', 'Piglets need 30–32°C. They pile up when cold — if you see a pile, raise the heat.'],
+    ['Day 8–21', 'Lower heat weekly. Keep the creep area clean and dry; add fresh straw daily.'],
   ],
 };
 
@@ -54,19 +55,18 @@ export default function FarmerTips() {
             </div>
           </div>
           <p className="muted small" style={{ marginTop: 10 }}>Broodiinnox steps the target range down automatically as the animals grow — you don't need to remember to change anything.</p>
-          <div className="warn-banner">📌 {p.tips}</div>
+          <div className="warn-banner"><Icon name="pin" size={18} /><div>{p.tips}</div></div>
         </Card>
 
         <Card title="Week by week">
-          {GUIDES[animal]?.length ? GUIDES[animal].map(([when, text, icon]) => (
+          {GUIDES[animal]?.length ? GUIDES[animal].map(([when, text]) => (
             <div key={when} className="alert-line">
-              <span style={{ fontSize: 18 }}>{icon}</span>
               <div>
                 <b>{when}</b>
                 <div className="muted small">{text}</div>
               </div>
             </div>
-          )) : <EmptyState icon="📖" text="Guide coming soon." />}
+          )) : <EmptyState icon="book" text="Guide coming soon." />}
         </Card>
       </div>
 
@@ -81,7 +81,7 @@ export default function FarmerTips() {
             'Keep the SIM card and antenna clean for a strong 4G signal',
           ].map((item, i) => (
             <div key={i} className="row" style={{ gap: 8 }}>
-              <span style={{ color: 'var(--brand-green)', fontWeight: 800 }}>✔</span> {item}
+              <Icon name="check" size={16} style={{ color: 'var(--brand-green)', flex: 'none' }} /> <span>{item}</span>
             </div>
           ))}
         </div>

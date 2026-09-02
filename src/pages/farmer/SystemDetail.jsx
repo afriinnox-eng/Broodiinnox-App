@@ -8,7 +8,8 @@ import {
 import { ANIMALS } from '../../lib/presets.js';
 import { fmtDate, fmtDateTime, timeAgo } from '../../lib/time.js';
 import { LineChart } from '../../components/charts.jsx';
-import { Badge, Btn, Card, Field, Modal, Progress, StatusBadge } from '../../components/ui.jsx';
+import { Badge, Btn, Card, Field, Modal, Progress, SevDot, StatusBadge } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
 
 /** Deterministic pseudo-history so the chart is stable across re-renders. */
@@ -66,7 +67,7 @@ export default function FarmerSystemDetail() {
     <div>
       <div className="row-between">
         <div>
-          <Link to="/farmer/systems" className="muted small">← My systems</Link>
+          <Link to="/farmer/systems" className="muted small" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="chevronLeft" size={14} /> My systems</Link>
           <h1 style={{ marginTop: 4 }}>Broodiinnox — {device.name}</h1>
           <div className="muted small">{device.serial} · firmware {device.firmware}</div>
         </div>
@@ -75,18 +76,18 @@ export default function FarmerSystemDetail() {
 
       {locked && (
         <div className="warn-banner" style={{ margin: '12px 0' }}>
-          <span>🔒</span>
+          <Icon name="lock" size={20} />
           <div>
             <b>Device locked.</b> The subscription linked to this system has lapsed. Renew to unlock the heater,
             alarm and buttons. {avg !== null && avg < (device.safetyFloor || 20) && <span style={{ fontWeight: 800 }}>Temperature is below the safety floor — failsafe heating stays available.</span>}
-            <div style={{ marginTop: 8 }}><Link className="btn primary small" to="/farmer/subscriptions">💳 Renew now</Link></div>
+            <div style={{ marginTop: 8 }}><Link className="btn primary small" to="/farmer/subscriptions"><Icon name="card" size={15} /> Renew now</Link></div>
           </div>
         </div>
       )}
 
       {maint && maintenanceDue(maint, now) && maint.status !== 'completed' && (
         <div className="warn-banner" style={{ margin: '12px 0', background: 'var(--brand-blue-soft)', color: 'var(--brand-blue)' }}>
-          <span>🔧</span>
+          <Icon name="wrench" size={20} />
           <div><b>Maintenance due.</b> Next service was due {fmtDate(maint.nextMaintenance)}. Afriinnox has been notified.</div>
         </div>
       )}
@@ -107,7 +108,7 @@ export default function FarmerSystemDetail() {
               </div>
               <div>
                 <div className="muted small">Heater</div>
-                <div style={{ fontWeight: 800 }}>{device.heaterOn ? '🔥 ON' : 'OFF'}</div>
+                <div style={{ fontWeight: 800 }}>{device.heaterOn ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="flame" size={16} /> ON</span> : 'OFF'}</div>
               </div>
               <div>
                 <div className="muted small">Status</div>
@@ -137,7 +138,7 @@ export default function FarmerSystemDetail() {
             {alerts.length === 0 && <div className="muted">No alerts.</div>}
             {alerts.map((a) => (
               <div key={a.id} className="alert-line">
-                <span>{a.severity === 'critical' ? '🔴' : a.severity === 'warning' ? '🟠' : '🔵'}</span>
+                <SevDot severity={a.severity} />
                 <div>
                   <div style={{ fontWeight: 600 }}>{a.message}</div>
                   <div className="muted small">{fmtDateTime(a.at)}</div>
@@ -155,13 +156,14 @@ export default function FarmerSystemDetail() {
             </div>
             {outsideRange && (
               <div className="warn-banner" style={{ marginBottom: 10 }}>
-                ⚠️ The temperature you've entered is outside the recommended range for {preset.label.toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).
+                <Icon name="alert" size={18} />
+                <div>The temperature you've entered is outside the recommended range for {preset.label.toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).</div>
               </div>
             )}
             <Btn variant="primary" disabled={!canControl} onClick={saveTargets}>Save targets</Btn>
             <div className="row" style={{ marginTop: 12 }}>
-              <Btn variant="danger" disabled={!canControl} onClick={() => setConfirm({ type: 'restart', label: 'Restart' })}>↻ Restart</Btn>
-              <Btn disabled={!canControl} onClick={() => setConfirm({ type: 'sync', label: 'Synchronize time' })}>🕐 Sync time</Btn>
+              <Btn variant="danger" disabled={!canControl} onClick={() => setConfirm({ type: 'restart', label: 'Restart' })}><Icon name="refresh" size={15} /> Restart</Btn>
+              <Btn disabled={!canControl} onClick={() => setConfirm({ type: 'sync', label: 'Synchronize time' })}><Icon name="clock" size={15} /> Sync time</Btn>
             </div>
             {!canControl && <div className="muted small" style={{ marginTop: 8 }}>Controls are disabled while the device is locked.</div>}
           </Card>
@@ -185,7 +187,7 @@ export default function FarmerSystemDetail() {
             ) : (
               <div className="muted" style={{ marginBottom: 10 }}>No active batch.</div>
             )}
-            <Btn variant="green" small onClick={() => setStartBatch(true)}>🐣 {device.batch ? 'Start new batch' : 'Start a batch'}</Btn>
+            <Btn variant="green" small onClick={() => setStartBatch(true)}><Icon name="egg" size={15} /> {device.batch ? 'Start new batch' : 'Start a batch'}</Btn>
           </Card>
 
           <Card title="Subscription">
@@ -198,12 +200,12 @@ export default function FarmerSystemDetail() {
                   </div>
                   <Badge tone="ok">{daysLeft} days left</Badge>
                 </div>
-                {daysLeft <= 7 && <div className="warn-banner" style={{ marginTop: 8 }}>⏳ Expires soon — renew to avoid the device locking.</div>}
+                {daysLeft <= 7 && <div className="warn-banner" style={{ marginTop: 8 }}><Icon name="clock" size={18} /><div>Expires soon — renew to avoid the device locking.</div></div>}
               </>
             ) : (
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--crit)' }}>{sub ? 'Subscription expired' : 'No subscription'} — device locked 🔒</div>
-                <Link to="/farmer/subscriptions" className="btn primary small" style={{ marginTop: 10 }}>💳 Renew now</Link>
+                <div style={{ fontWeight: 700, color: 'var(--crit)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>{sub ? 'Subscription expired' : 'No subscription'} — device locked <Icon name="lock" size={14} /></div>
+                <Link to="/farmer/subscriptions" className="btn primary small" style={{ marginTop: 10 }}><Icon name="card" size={15} /> Renew now</Link>
               </div>
             )}
           </Card>
@@ -249,7 +251,7 @@ function StartBatchModal({ device, onClose, dispatch, now }) {
       <div className="btn-row">
         <Btn variant="green" onClick={() => {
           dispatch({ type: 'START_BATCH', deviceId: device.id, animal, durationDays: duration, count, startDate: new Date(`${start}T06:00:00`).toISOString() });
-          dispatch({ type: 'TOAST', msg: 'Batch started 🐣' });
+          dispatch({ type: 'TOAST', msg: 'Batch started.' });
           onClose();
         }}>Start batch</Btn>
         <Btn onClick={onClose}>Cancel</Btn>

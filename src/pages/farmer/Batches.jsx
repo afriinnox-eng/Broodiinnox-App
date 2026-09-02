@@ -4,6 +4,7 @@ import { batchDay, batchRemaining } from '../../lib/services.js';
 import { ANIMALS } from '../../lib/presets.js';
 import { fmtDate } from '../../lib/time.js';
 import { Badge, Btn, Card, EmptyState, Field, Modal, Progress, Tabs } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
 
 export default function FarmerBatches() {
@@ -22,13 +23,13 @@ export default function FarmerBatches() {
       <h1>{t('nav.batches', lang)}</h1>
       <div className="row-between">
         <p className="muted">The system calculates the batch day and remaining days automatically.</p>
-        <Btn variant="green" onClick={() => setModal(true)}>🐣 Start new batch</Btn>
+        <Btn variant="green" onClick={() => setModal(true)}><Icon name="egg" size={16} /> Start new batch</Btn>
       </div>
 
       <Tabs tabs={[{ key: 'current', label: `Current (${current.length})` }, { key: 'past', label: `History (${past.length})` }]} active={tab} onChange={setTab} />
 
       {tab === 'current' && (
-        current.length === 0 ? <EmptyState icon="🐣" text="No active batches." /> :
+        current.length === 0 ? <EmptyState icon="egg" text="No active batches." /> :
         <div className="grid cols-2">
           {current.map((d) => {
             const day = batchDay(d.batch.startDate, d.batch.durationDays, now);
@@ -57,7 +58,7 @@ export default function FarmerBatches() {
       )}
 
       {tab === 'past' && (
-        past.length === 0 ? <EmptyState icon="🗂️" text="No past batches yet." /> :
+        past.length === 0 ? <EmptyState icon="clock" text="No past batches yet." /> :
         <div className="grid cols-2">
           {past.map((d) => (
             <Card key={d.id} title={`${d.name} (${d.serial})`}>
@@ -106,7 +107,7 @@ function NewBatchForm({ devices, dispatch, onDone }) {
       <div className="btn-row">
         <Btn variant="green" onClick={() => {
           dispatch({ type: 'START_BATCH', deviceId, animal, durationDays: duration, count, startDate: new Date(`${start}T06:00:00`).toISOString() });
-          dispatch({ type: 'TOAST', msg: 'Batch started 🐣' });
+          dispatch({ type: 'TOAST', msg: 'Batch started.' });
           onDone();
         }}>Start batch</Btn>
         <Btn onClick={onDone}>Cancel</Btn>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, Card, EmptyState, Field, Modal, Tabs } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { fmtDateTime } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
 
@@ -25,7 +26,7 @@ export default function FarmerSupport() {
       <Tabs tabs={[{ key: 'tickets', label: `My tickets (${myTickets.length})` }, { key: 'info', label: 'How to reach us' }]} active={tab} onChange={setTab} />
 
       {tab === 'tickets' && (
-        myTickets.length === 0 ? <EmptyState icon="🎫" text="No tickets yet." /> : (
+        myTickets.length === 0 ? <EmptyState icon="ticket" text="No tickets yet." /> : (
           <div className="grid cols-2">
             {myTickets.map((tk) => (
               <Card key={tk.id} title={`Ticket ${tk.id}`}>
@@ -45,9 +46,9 @@ export default function FarmerSupport() {
       {tab === 'info' && (
         <div className="grid cols-2">
           <Card title="Contact Afriinnox">
-            <div>📞 +250 788 123 456</div>
-            <div>✉️ support@afriinnox.com</div>
-            <div>📍 KN 112 St, Kigali, Rwanda</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Icon name="phone" size={16} /> +250 788 123 456</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 6 }}><Icon name="mail" size={16} /> support@afriinnox.com</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 6 }}><Icon name="pin" size={16} /> KN 112 St, Kigali, Rwanda</div>
             <div className="muted small" style={{ marginTop: 8 }}>For locked devices or subscription issues, renew in the Subscriptions tab — the device unlocks automatically after MoMo confirmation.</div>
           </Card>
           <Card title="Emergency">

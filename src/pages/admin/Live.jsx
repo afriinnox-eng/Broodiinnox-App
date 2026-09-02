@@ -3,6 +3,7 @@ import { useStore } from '../../lib/store.jsx';
 import { avgTemp, deviceStatus, batchDay } from '../../lib/services.js';
 import { ANIMALS } from '../../lib/presets.js';
 import { Card, StatusBadge } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { timeAgo } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
 
@@ -15,7 +16,7 @@ export default function AdminLive() {
 
   return (
     <div>
-      <h1>{t('nav.live', lang)} <span className="chip" style={{ color: 'var(--ok)' }}>● LIVE</span></h1>
+      <h1>{t('nav.live', lang)} <span className="chip" style={{ color: 'var(--ok)' }}><Icon name="pulse" size={15} /> LIVE</span></h1>
       <p className="muted">Real-time telemetry from every Broodiinnox system. Data refreshes every 5 seconds.</p>
       <div className="grid cols-3" style={{ marginTop: 14 }}>
         {state.devices.map((d) => {
@@ -35,7 +36,7 @@ export default function AdminLive() {
                 </div>
                 <div>
                   <div className="muted small">Heater</div>
-                  <div style={{ fontWeight: 800 }}>{d.heaterOn ? '🔥 ON' : 'OFF'}</div>
+                  <div style={{ fontWeight: 800 }}>{d.heaterOn ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="flame" size={16} /> ON</span> : 'OFF'}</div>
                 </div>
                 <div>
                   <div className="muted small">Batch</div>

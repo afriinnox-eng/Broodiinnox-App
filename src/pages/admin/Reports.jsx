@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { subscriptionState, deviceStatus, batchDay } from '../../lib/services.js';
 import { Badge, Btn, Card, DataTable, downloadCsv, Tabs } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import { BarChart } from '../../components/charts.jsx';
 import { fmtDate, fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
@@ -90,7 +91,7 @@ export default function AdminReports() {
 
       <div className="row-between" style={{ margin: '14px 0' }}>
         <h3 style={{ margin: 0 }}>Details</h3>
-        <Btn small onClick={() => downloadCsv(`broodiinnox-${tab}.csv`, tab === 'devices' ? deviceRows : tab === 'farmers' ? farmerRows : tab === 'subscriptions' ? subRows : tab === 'financial' ? finRows : batchRows)}>⬇ Export CSV</Btn>
+        <Btn small onClick={() => downloadCsv(`broodiinnox-${tab}.csv`, tab === 'devices' ? deviceRows : tab === 'farmers' ? farmerRows : tab === 'subscriptions' ? subRows : tab === 'financial' ? finRows : batchRows)}><Icon name="download" size={15} /> Export CSV</Btn>
       </div>
       {views[tab]}
     </div>
