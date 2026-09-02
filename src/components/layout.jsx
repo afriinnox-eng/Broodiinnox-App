@@ -113,13 +113,13 @@ export default function AppShell({ children }) {
   const lang = state.lang || 'en';
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${role === 'admin' ? 'console' : 'farmer-app'}`}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">A</div>
           <div>
             <div className="brand-name">AFRIINNOX</div>
-            <div className="brand-sub">Broodiinnox</div>
+            <div className="brand-sub">{role === 'admin' ? 'Operations Console' : 'Broodiinnox'}</div>
           </div>
         </div>
         <NavSection section={role === 'admin' ? 'Afriinnox Admin' : 'Farmer App'} items={nav} base={base} lang={lang} />

@@ -86,18 +86,24 @@ describe('login & roles', () => {
   });
 
   it('logs in as demo farmer and shows the dashboard with system cards', async () => {
-    renderApp();
+    const { container } = renderApp();
     fireEvent.click(screen.getByRole('button', { name: /demo farmer/i }));
     await waitFor(() => expect(screen.getByText(/Dashboard, Jean/i)).toBeInTheDocument());
+    // the farmer app keeps the light blue shell, not the admin console skin
+    expect(container.querySelector('.app-shell').className).toContain('farmer-app');
+    expect(container.querySelector('.app-shell').className).not.toContain('console');
     expect(screen.getByText(/Main Farm/i)).toBeInTheDocument();
     expect(screen.getByText(/Kigali Farm 2/i)).toBeInTheDocument();
   });
 
-  it('logs in as admin and shows network KPIs', async () => {
-    renderApp();
+  it('logs in as admin and shows network KPIs under the console skin', async () => {
+    const { container } = renderApp();
     fireEvent.click(screen.getByText(/Afriinnox Admin/));
     fireEvent.click(screen.getByRole('button', { name: /demo admin/i }));
     await waitFor(() => expect(screen.getByText(/Revenue today/i)).toBeInTheDocument());
+    // admin signs into its own dark ops-console shell, distinct from the farmer app
+    expect(container.querySelector('.app-shell').className).toContain('console');
+    expect(container.querySelector('.app-shell').className).not.toContain('farmer-app');
     expect(screen.getByText(/Complete overview of the Broodiinnox network/i)).toBeInTheDocument();
   });
 });

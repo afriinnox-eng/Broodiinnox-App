@@ -230,3 +230,59 @@ tr:hover td { background: var(--surface-2); }
 }
 [data-theme='dark'] .toast { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); font-size: 12px; font-weight: 600; }
+
+/* ===== Admin console skin =====
+   The two dashboards share one shell; the Afriinnox Admin side is given its own
+   "operations console" identity (dark chrome, brand-white accents) so it reads as
+   a different product from the farmer app — not the blue app sidebar twice.
+   No emoji / pictographic glyphs are introduced anywhere in this skin. */
+/* --- console sidebar: black -> deep navy, ops-room feel --- */
+.app-shell.console .sidebar {
+  background: linear-gradient(180deg, #141b2e 0%, #0b1020 40%, #060910 100%);
+}
+.app-shell.console .brand-sub { opacity: 0.55; }
+.app-shell.console .nav-section { color: rgba(255, 255, 255, 0.42); }
+.app-shell.console .nav-item { color: rgba(255, 255, 255, 0.82); }
+.app-shell.console .nav-item:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.app-shell.console .nav-item.active { background: #fff; color: #0b1020; }
+.app-shell.console .brand-mark { background: #fff; color: #0b1020; }
+
+/* --- console topbar: dark strip, light controls --- */
+.app-shell.console .topbar {
+  background: #0b1019;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.app-shell.console .topbar > b { color: #fff; }
+.app-shell.console .topbar-search {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.app-shell.console .topbar-search::placeholder { color: rgba(255, 255, 255, 0.45); }
+.app-shell.console .topbar .field {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+.app-shell.console select.field option { color: #16181f; background: #fff; }
+.app-shell.console .chip { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.app-shell.console .icon-btn {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+.app-shell.console .icon-btn:hover { background: rgba(255, 255, 255, 0.12); }
+.app-shell.console .icon-btn .dot-badge { background: #fff; color: #0b1019; }
+
+/* --- console page accents --- */
+.app-shell.console .stat-icon {
+  background: #0b1020;
+  border: 1px solid #cdd5e8;
+  color: #fff;
+}
+[data-theme='dark'] .app-shell.console .stat-icon {
+  background: #222b44;
+  border-color: #3a4460;
+}
+.app-shell.console .tab.active { color: #0b1020; border-bottom-color: #0b1020; }
+[data-theme='dark'] .app-shell.console .tab.active { color: #fff; border-bottom-color: #fff; }

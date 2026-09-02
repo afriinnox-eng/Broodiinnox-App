@@ -69,8 +69,16 @@ export default function Login() {
       <div style={{ display: 'grid', placeItems: 'center', padding: 32 }}>
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div className="tabs" style={{ borderBottom: 'none', justifyContent: 'center', marginBottom: 20 }}>
-            <div className={`tab ${isFarmer ? 'active' : ''}`} style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 7 }} onClick={() => setMode('farmer')}><Icon name="users" size={17} /> {t('login.farmer', lang)}</div>
-            <div className={`tab ${!isFarmer ? 'active' : ''}`} style={{ fontSize: 15, display: 'flex', alignItems: 'center', gap: 7 }} onClick={() => setMode('admin')}><Icon name="shield" size={17} /> {t('login.admin', lang)}</div>
+            <div className={`tab ${isFarmer ? 'active' : ''}`} style={{
+              fontSize: 15, display: 'flex', alignItems: 'center', gap: 7,
+              color: isFarmer ? '#1c3a96' : 'var(--text-muted)',
+              borderBottom: isFarmer ? '2.5px solid #1c3a96' : '2.5px solid transparent',
+            }} onClick={() => setMode('farmer')}><Icon name="users" size={17} /> {t('login.farmer', lang)}</div>
+            <div className={`tab ${!isFarmer ? 'active' : ''}`} style={{
+              fontSize: 15, display: 'flex', alignItems: 'center', gap: 7,
+              color: !isFarmer ? '#0b0f1a' : 'var(--text-muted)',
+              borderBottom: !isFarmer ? '2.5px solid #0b0f1a' : '2.5px solid transparent',
+            }} onClick={() => setMode('admin')}><Icon name="shield" size={17} /> {t('login.admin', lang)}</div>
           </div>
           <h2 style={{ textAlign: 'center' }}>{t('login.title', lang)}</h2>
           <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>{t('login.subtitle', lang)}</p>
@@ -85,7 +93,12 @@ export default function Login() {
               <label>{t('login.password', lang)}</label>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
             </div>
-            <button className="btn primary" style={{ width: '100%', justifyContent: 'center', padding: 11 }}>{t('login.signIn', lang)}</button>
+            <button className="btn" style={{
+              width: '100%', justifyContent: 'center', padding: 11,
+              background: isFarmer ? 'var(--brand-blue)' : '#0b0f1a',
+              borderColor: isFarmer ? 'var(--brand-blue)' : '#0b0f1a',
+              color: '#fff',
+            }}>{t('login.signIn', lang)}</button>
           </form>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
