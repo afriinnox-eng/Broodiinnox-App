@@ -1,0 +1,23 @@
+{
+  "name": "broodiinnox-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "test": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@next/swc-win32-x64-msvc": "^15.5.25",
+    "mqtt": "^5.10.3",
+    "next": "^15.1.6",
+    "pg": "^8.13.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
