@@ -362,9 +362,9 @@ class PostgresStore {
   }
 }
 
-/** Build the store. DATABASE_URL unset (or unreachable) => memory store. */
+/** Build the store. No DB url set (or unreachable) => memory store. */
 export async function createStore() {
-  const url = process.env.DATABASE_URL;
+  const url = process.env.DATABASE_URL || process.env.COCKROACHURL;
   if (!url) return new MemoryStore();
   try {
     const { Pool } = await import('pg');

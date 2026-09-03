@@ -19,13 +19,18 @@ function slowEquals(a, b) {
   return out === 0;
 }
 
-/** Returns true when the request is authorized. */
-export function isAuthorized(request) {
+/** Authorize a raw token (used by the WebSocket endpoint too). */
+export function authorizeToken(token) {
   const keys = apiKeys();
-  if (keys.length === 0) return true;
-
-  const h = request.headers.get('x-api-key') || request.headers.get('authorization') || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7).trim() : h.trim();
+  if (keys.length === 0) return true; // open dev mode
   if (!token) return false;
   return keys.some((k) => slowEquals(token, k));
+}
+
+/** Returns true when the request is authorized. */
+export function isAuthorized(request) {
+  if (apiKeys().length === 0) return true;
+  const h = request.headers.get('x-api-key') || request.headers.get('authorization') || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7).trim() : h.trim();
+  return authorizeToken(token);
 }

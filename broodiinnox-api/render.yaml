@@ -1,0 +1,17 @@
+# Render blueprint — Broodiinnox API (Next.js web service)
+# Deployed as a web service from the repo root directory broodiinnox-api.
+# DATABASE_URL / MQTT_URL / API_KEYS are set as secret env vars in the
+# Render dashboard or via the API at deploy time — never committed here.
+services:
+  - type: web
+    name: broodiinnox-api
+    runtime: node
+    repo: https://github.com/afriinnox-eng/Broodiinnox-App
+    branch: main
+    rootDir: broodiinnox-api
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: node scripts/server.js
+    healthCheckPath: /api/health
+    autoDeploy: false

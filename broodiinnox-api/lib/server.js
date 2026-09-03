@@ -6,6 +6,7 @@
  */
 import { createStore } from './store.js';
 import { Bridge } from './bridge.js';
+import { getWsHub } from './wsHub.js';
 import { DEFAULT_TOPIC_PREFIX } from './constants.js';
 
 const g = globalThis;
@@ -25,6 +26,8 @@ export async function getBridge() {
       password: process.env.MQTT_PASSWORD,
       store,
     });
+    // every ingest event is pushed to WebSocket subscribers
+    bridge.onEvent = (ev) => getWsHub().publish(ev);
     g.__broodiinnoxBridge = bridge;
     // Fire-and-forget: start() resolves after connect or a 15 s timeout and
     // the API keeps working either way (commands fail cleanly when offline).

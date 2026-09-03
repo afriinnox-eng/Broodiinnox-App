@@ -19,13 +19,14 @@ function rnd() {
 }
 
 export class Bridge {
-  constructor({ url, prefix = 'BROODIINNOX', username, password, store, log = console }) {
+  constructor({ url, prefix = 'BROODIINNOX', username, password, store, onEvent = null, log = console }) {
     this.url = url;
     this.prefix = prefix;
     this.username = username || undefined;
     this.password = password || undefined;
     this.store = store;
     this.log = log;
+    this.onEvent = onEvent; // optional push callback: (event) => void
     this.client = null;
     this.connected = false;
     this.started = false;
@@ -110,6 +111,29 @@ export class Bridge {
     return this.mem.get(deviceId) || null;
   }
 
+  /** Push one event to the hub (if wired). Never throws. */
+  emit(event) {
+    if (typeof this.onEvent === 'function') {
+      try {
+        this.onEvent(event);
+      } catch { /* subscribers must not break ingestion */ }
+    }
+  }
+
+  /** Log an alert and push it to subscribers. */
+  async logAlertEmit(deviceId, severity, kind, message) {
+    const rec = await this.store.logAlert({ device_id: deviceId, severity, kind, message });
+    this.emit({
+      type: 'alert',
+      device_id: deviceId,
+      severity,
+      kind,
+      message,
+      ts: (rec && rec.ts) || new Date().toISOString(),
+    });
+    return rec;
+  }
+
   async handle(topic, payload) {
     const ev = ingestMessage(topic, payload);
     if (!ev || !ev.deviceId) return;
@@ -125,11 +149,12 @@ export class Bridge {
       this.mem.set(id, { ...cur, deviceId: id, online: false, lastSeenAt: Date.now() });
       this.prev.set(id, { ...prevFlags, online: false });
       await this.store.upsertState(id, this.mem.get(id));
+      this.emit({ type: 'status', device_id: id, online: false, locked: !!cur.locked, ts: new Date().toISOString() });
       if (wasOnline) {
-        await this.store.logAlert({
-          device_id: id, severity: 'warning', kind: 'device.offline',
-          message: 'Device stopped publishing (LWT offline) — no heartbeat for too long.',
-        });
+        await this.logAlertEmit(
+          id, 'warning', 'device.offline',
+          'Device stopped publishing (LWT offline) — no heartbeat for too long.',
+        );
       }
       return;
     }
@@ -179,6 +204,31 @@ export class Bridge {
     }
     await this.store.upsertState(id, next);
 
+    // live push to dashboards over WebSocket
+    this.emit({
+      type: 'status',
+      device_id: id,
+      online: true,
+      locked: !!next.locked,
+      ts: new Date().toISOString(),
+    });
+    if (ev.kind === 'data') {
+      this.emit({
+        type: 'telemetry',
+        device_id: id,
+        ts: new Date().toISOString(),
+        device_ts: ev.device_ts ?? null,
+        day: next.day, total_days: next.totalDays,
+        max_temp: next.maxTemp, min_temp: next.minTemp,
+        ave_temp: next.aveTemp,
+        temp1: next.temp1, temp2: next.temp2, temp3: next.temp3, temp4: next.temp4,
+        relay_state: next.relayOn, manual_control: next.manual,
+        failsafe_mode: next.failsafeMode, sensor_error: next.sensorError,
+        mismatch_error: next.mismatchError, device_locked: next.locked,
+        signal_quality: next.signal,
+      });
+    }
+
     // Alert transitions (firmware flag flips), deduped by comparing prev flags
     const defs = [
       ['locked', 'locked', 'critical', 'device.locked', 'Device subscription lock engaged — all control disabled.'],
@@ -189,7 +239,7 @@ export class Bridge {
     for (const [flagKey, curKey, sev, kind, msg] of defs) {
       const nowVal = !!next[curKey];
       if (nowVal && !prevFlags[flagKey]) {
-        await this.store.logAlert({ device_id: id, severity: sev, kind, message: msg });
+        await this.logAlertEmit(id, sev, kind, msg);
       } else if (!nowVal && prevFlags[flagKey]) {
         const recover = {
           failsafeMode: ['info', 'failsafe.cleared', 'Sensors recovered — failsafe cleared, normal control resumed.'],
@@ -199,7 +249,7 @@ export class Bridge {
         }[curKey];
         if (recover) {
           const [rSev, rKind, rMsg] = recover;
-          await this.store.logAlert({ device_id: id, severity: rSev, kind: rKind, message: rMsg });
+          await this.logAlertEmit(id, rSev, rKind, rMsg);
         }
       }
     }
