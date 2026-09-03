@@ -9,5 +9,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/tests/setup.js',
     globals: true,
+    // broodiinnox-api is a separate Next.js project with its own node:test
+    // runner — never let this app's vitest scan into it.
+    exclude: ['**/node_modules/**', '**/dist/**', 'broodiinnox-api/**'],
   },
 });

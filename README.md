@@ -47,6 +47,47 @@ npm test          # vitest (service invariants + component + functional render t
 npm run check     # build + tests
 ```
 
+## Live IoT mode (hardware backend)
+
+The same folder contains `broodiinnox-api/` — the Next.js + CockroachDB + MQTT
+backend that speaks the firmware's protocol (see its README), and
+`src/lib/iot.js` is this SPA's ready-to-use client + adapters for it. When no
+API is configured the app runs its built-in simulation, so the demo never
+breaks; set the env vars below and the pages can read real device state, send
+firmware-validated commands and reconcile subscription locks.
+
+```bash
+# .env (or build env vars)
+VITE_IOT_API_URL=http://localhost:3001   # broodiinnox-api base URL
+VITE_IOT_API_KEY=                        # matches API_KEYS on the server
+VITE_IOT_TIMEOUT_MS=8000
+```
+
+```js
+import { createIotApi, resolveIotConfig, apiDeviceToVm, targetsToCommands, reconcileLockPlan } from './src/lib/iot.js';
+
+const cfg = resolveIotConfig(import.meta.env);
+const api = cfg.enabled ? createIotApi(cfg) : null;
+
+// live state of every unit seen by the backend
+const { devices } = await api.listDevices();
+const vm = devices.map(apiDeviceToVm);   // API row -> dashboard device model
+
+// farmer saves targets 32..36 -> validated firmware commands
+const { commands, errors } = targetsToCommands({ min: 32, max: 36 });
+for (const c of commands) await api.sendCommand('BROODIINNOX-002', c.command, c.value);
+
+// subscription expired? drive the physical unit's lock to match business state
+for (const step of reconcileLockPlan([{ deviceId: 'BROODIINNOX-002', currentLocked: false, wantLocked: true }])) {
+  if (step.command) await api.sendCommand(step.deviceId, step.command.command, step.command.value);
+}
+```
+
+Adapters and client are invariant-tested in `src/tests/iot.test.js`. Wiring
+individual pages (Systems, Live, SystemDetail) to live mode is the next step
+and should be done against a real broker + device so it can be verified
+end-to-end.
+
 ## Deploy (Render)
 
 `render.yaml` deploys a **static site** from `main` (`npm ci && npm run build`,
