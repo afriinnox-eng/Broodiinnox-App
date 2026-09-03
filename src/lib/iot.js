@@ -144,6 +144,13 @@ function asBool(v) {
   return null;
 }
 
+/** A plausible brooding temperature; the firmware's -999 NaN sentinel is not. */
+function sanitizeTemp(v) {
+  const n = cleanNum(v);
+  if (n === null || n <= -900 || n < -55 || n > 125) return null;
+  return n;
+}
+
 /**
  * Map a broodiinnox-api device row (snake_case, from Cockroach/state) to the
  * dashboard's sensor model. Accepts both the raw row and the {device: row}
@@ -154,10 +161,7 @@ export function apiDeviceToVm(row) {
   const r = (row && typeof row === 'object' && row.device) ? row.device : row;
   if (!r || typeof r !== 'object') return null;
 
-  const temps = API_SENSOR_KEYS.map((k) => {
-    const v = cleanNum(r[k]);
-    return v !== null && v >= -55 && v <= 125 ? v : null;
-  });
+  const temps = API_SENSOR_KEYS.map((k) => sanitizeTemp(r[k]));
   const enables = API_ENABLE_KEYS.map((k, i) => {
     const b = asBool(r[k]);
     return b !== null ? b : temps[i] !== null; // unknown enable: infer from a live reading
@@ -181,7 +185,7 @@ export function apiDeviceToVm(row) {
     sensorError: asBool(r.sensor_error) === true,
     mismatchError: asBool(r.mismatch_error) === true,
     signalQuality: cleanNum(r.signal_quality),
-    aveTemp: cleanNum(r.ave_temp),
+    aveTemp: sanitizeTemp(r.ave_temp),
     temps,
     sensors: temps.map((t, i) => ({ id: i + 1, enabled: enables[i], lastReading: t, health: t === null ? 'err' : 'ok' })),
     heaterOn: asBool(r.relay_state) === true,

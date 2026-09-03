@@ -202,9 +202,10 @@ describe('apiDeviceToVm', () => {
   });
 
   it('sanitizes temperatures: impossible values become null, never poison control', () => {
-    const row = { ...REAL_API_ROW, temp1: 300, temp2: -999, temp3: '36.5', temp4: 'garbage' };
+    const row = { ...REAL_API_ROW, temp1: 300, temp2: -999, temp3: '36.5', temp4: 'garbage', ave_temp: -999 };
     const vm = apiDeviceToVm(row);
     expect(vm.temps).toEqual([null, null, 36.5, null]);
+    expect(vm.aveTemp).toBeNull(); // firmware -999 NaN sentinel never surfaces
     // an absent reading must not be reported as enabled+healthy
     expect(vm.sensors[3].health).toBe('err');
   });
