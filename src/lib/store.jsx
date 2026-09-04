@@ -499,6 +499,21 @@ export function StoreProvider({ children }) {
       }).catch(toastErr);
       return;
     }
+    if (action?.type === 'RENAME_DEVICE') {
+      // Keep the API registration name in sync with the app (POST /api/devices
+      // is an upsert), so Live Monitoring shows the SAME name as Systems.
+      const dev = action.deviceId ? st.devices.find((d) => d.id === action.deviceId) : null;
+      if (dev) {
+        const loc = typeof dev.location === 'string' ? dev.location : dev.location?.district || '';
+        api.registerDevice({
+          device_id: dev.id,
+          name: action.name,
+          farmer_id: dev.farmerId || 'dev',
+          location: loc,
+        }).catch(toastErr);
+      }
+      return;
+    }
     const dev = action?.deviceId ? st.devices.find((d) => d.id === action.deviceId) : null;
     const plan = liveCommandPlan(action, dev);
     for (const c of plan) {

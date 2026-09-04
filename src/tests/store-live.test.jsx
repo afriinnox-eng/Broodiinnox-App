@@ -124,7 +124,7 @@ it('adds API-registered live devices to the store with real telemetry', async ()
 it('overlays REAL values onto a device the user registered in the UI (same id)', async () => {
   // Simulate the reported bug: user registered BROODIINNOX-001 in the app,
   // which seeded a static 24°C mock. The real API reading is 27.6°C.
-  const seed = buildSeed();
+  const seed = JSON.parse(JSON.stringify(buildSeed()));
   seed.devices.push({
     id: 'BROODIINNOX-001', serial: 'BROODIINNOX-001', name: 'BROODIINNOX-001', farmerId: 'f1',
     firmware: 'v2.1.0', installedAt: '2026-09-04T10:00:00.000Z',
@@ -174,8 +174,7 @@ it('registers a new device against the real API when live', async () => {
   expect(post.body.farmer_id).toBe('f2');
 });
 
-it('forwards target/sensor/lock actions on live devices as firmware commands', async () => {
-  let dispatch;
+it('forwards target/sensor/lock actions on live devices as firmware commands', async () => {  let dispatch;
   function Ctl() {
     const { state, dispatch: d } = useStore();
     dispatch = d;
@@ -216,6 +215,39 @@ it('forwards target/sensor/lock actions on live devices as firmware commands', a
   });
   const lock = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
   expect(lock.body).toEqual({ command: 'device_active', value: 'LOCKED' });
+});
+
+it('syncs a rename of a live device back to the API registration', async () => {
+  let dispatch;
+  function R() {
+    const { state, dispatch: d } = useStore();
+    dispatch = d;
+    const dev = state.devices.find((x) => x.id === 'BROODIINNOX-001');
+    return <div>{dev && dev.live ? dev.name : 'pending'}</div>;
+  }
+  const seed = JSON.parse(JSON.stringify(buildSeed()));
+  seed.devices.push({
+    id: 'BROODIINNOX-001', serial: 'BROODIINNOX-001', name: 'BROODIINNOX-001', farmerId: 'f2',
+    location: { district: 'Kigali', sector: 'Gasabo', lat: 0, lng: 0 }, sensors: [],
+    subscription: { planId: null, status: 'inactive', startDate: null, endDate: null },
+  });
+  localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...seed, session: null, reminderSent: [] }));
+  const out = render(
+    <StoreProvider><R /></StoreProvider>
+  );
+  await flushPoll();
+
+  await act(async () => {
+    dispatch({ type: 'RENAME_DEVICE', deviceId: 'BROODIINNOX-001', name: 'Coop A' });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const post = calls.find((c) => c.method === 'POST' && c.path.endsWith('/api/devices'));
+  expect(post).toBeTruthy();
+  expect(post.body.device_id).toBe('BROODIINNOX-001');
+  expect(post.body.name).toBe('Coop A');
+  expect(post.body.farmer_id).toBe('f2'); // upsert must not wipe the farmer
+  expect(out.getByText('Coop A')).toBeTruthy();
 });
 
 it('does NOT forward actions on simulation devices to the API', async () => {

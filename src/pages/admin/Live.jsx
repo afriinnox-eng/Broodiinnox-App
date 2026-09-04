@@ -5,15 +5,16 @@ import { ANIMALS } from '../../lib/presets.js';
 import { Card, StatusBadge } from '../../components/ui.jsx';
 import { Icon } from '../../components/icons.jsx';
 import { timeAgo } from '../../lib/time.js';
-import { liveVmStatus, useLiveDevices } from '../../lib/live.js';
+import { liveVmStatus, useLiveDevices, deviceDisplayName } from '../../lib/live.js';
 import { t } from '../../i18n/strings.js';
 
-function LiveDeviceCard({ vm, lang }) {
+function LiveDeviceCard({ vm, lang, storeName }) {
   const now = new Date().toISOString();
   const status = liveVmStatus(vm, now);
   const seen = vm.lastSeenAt ? timeAgo(vm.lastSeenAt, now) : '—';
+  const name = storeName || vm.name || vm.id;
   return (
-    <Card title={`${vm.name} — ${vm.id}`}>
+    <Card title={`${name} — ${vm.id}`}>
       <div className="row-between">
         <StatusBadge status={status} />
         <span className="muted small">
@@ -88,9 +89,12 @@ export default function AdminLive() {
           )}
           {live.loading && <p className="muted">Connecting to live API…</p>}
           <div className="grid cols-3" style={{ marginTop: 14 }}>
-            {live.devices.map((vm) => (
-              <LiveDeviceCard key={vm.id} vm={vm} lang={lang} />
-            ))}
+            {live.devices.map((vm) => {
+              const storeDevice = state.devices.find((d) => d.id === vm.id);
+              return (
+                <LiveDeviceCard key={vm.id} vm={vm} lang={lang} storeName={deviceDisplayName(storeDevice, vm)} />
+              );
+            })}
             {!live.loading && !live.error && live.devices.length === 0 && (
               <p className="muted">No devices registered on the API yet.</p>
             )}

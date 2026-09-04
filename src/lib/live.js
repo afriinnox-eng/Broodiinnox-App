@@ -79,6 +79,22 @@ export function liveVmStatus(vm, nowIso) {
   return 'online';
 }
 
+/**
+ * Canonical display name shared by every page. A custom name the user set
+ * in the app (different from the serial) wins over the API registration
+ * name, so Admin Live, Systems and Devices always agree; otherwise the API
+ * name is used, then the device id.
+ */
+export function deviceDisplayName(storeDevice, vm) {
+  if (storeDevice && typeof storeDevice.name === 'string' && storeDevice.name.trim()
+    && storeDevice.name !== storeDevice.serial) {
+    return storeDevice.name;
+  }
+  if (vm && typeof vm.name === 'string' && vm.name.trim()) return vm.name;
+  if (storeDevice && typeof storeDevice.name === 'string' && storeDevice.name.trim()) return storeDevice.name;
+  return (vm && vm.id) || (storeDevice && storeDevice.id) || '';
+}
+
 /* ------------------------------------------------------------------ */
 /* Store overlay: real API device state everywhere in the app          */
 /* ------------------------------------------------------------------ */

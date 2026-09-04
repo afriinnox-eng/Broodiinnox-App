@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  liveCommandPlan, liveVmStatus, nearestAnimal, overlayLiveDevice, storeDeviceFromVm,
+  deviceDisplayName, liveCommandPlan, liveVmStatus, nearestAnimal, overlayLiveDevice, storeDeviceFromVm,
 } from '../lib/live.js';
 
 function vm(patch = {}) {
@@ -191,6 +191,21 @@ describe('overlayLiveDevice', () => {
     expect(b.farmerId).toBe(a.farmerId);
     expect(b.subscription.planId).toBe(a.subscription.planId);
     expect(b.sensors).toEqual(a.sensors);
+  });
+});
+
+describe('deviceDisplayName', () => {
+  const vm = () => ({ id: 'BROODIINNOX-001', name: 'API Name' });
+  it('a custom app name (different from serial) wins over the API name', () => {
+    expect(deviceDisplayName({ id: 'BROODIINNOX-001', serial: 'BROODIINNOX-001', name: 'Coop A' }, vm())).toBe('Coop A');
+  });
+  it('a serial-only app name falls back to the API registration name', () => {
+    expect(deviceDisplayName({ id: 'BROODIINNOX-001', serial: 'BROODIINNOX-001', name: 'BROODIINNOX-001' }, vm())).toBe('API Name');
+  });
+  it('without a store device the API name is used; ids are the last resort', () => {
+    expect(deviceDisplayName(null, vm())).toBe('API Name');
+    expect(deviceDisplayName({ id: 'X', serial: 'X', name: 'X' }, { id: 'X', name: '' })).toBe('X');
+    expect(deviceDisplayName(null, null)).toBe('');
   });
 });
 
