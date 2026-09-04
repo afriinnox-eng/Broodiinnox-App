@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import { apiDeviceToVm, createIotApi, resolveIotConfig } from './iot.js';
+import { ANIMALS, ANIMAL_KEYS } from './presets.js';
 
 /** Resolved once per build; reading import.meta.env is not testable at runtime. */
 export const liveConfig = resolveIotConfig(import.meta.env);
@@ -76,4 +77,140 @@ export function liveVmStatus(vm, nowIso) {
   const now = new Date(nowIso).getTime();
   if (!last || now - last > 15 * 60000) return 'offline';
   return 'online';
+}
+
+/* ------------------------------------------------------------------ */
+/* Store overlay: real API device state everywhere in the app          */
+/* ------------------------------------------------------------------ */
+
+/** Nearest animal preset for a live (min,max) target band — cosmetic only. */
+export function nearestAnimal(min, max) {
+  let best = ANIMAL_KEYS[0];
+  let bestD = Infinity;
+  for (const k of ANIMAL_KEYS) {
+    const d = Math.abs((min ?? 0) - ANIMALS[k].baseMin) + Math.abs((max ?? 0) - ANIMALS[k].baseMax);
+    if (d < bestD) {
+      bestD = d;
+      best = k;
+    }
+  }
+  return best;
+}
+
+/**
+ * Build a full store-shaped device from a live API VM. Subscription is a
+ * non-expiring placeholder so the mock UI does not invent a business lock;
+ * the REAL lock (firmware device_active / subscription kill-switch) is
+ * carried by `manualLock` <- vm.locked and comes back from the API.
+ */
+export function storeDeviceFromVm(vm, nowIso) {
+  if (!vm || !vm.id) return null;
+  const day = vm.day !== null && vm.day !== undefined && vm.day >= 1 ? vm.day : 1;
+  const durationDays = Math.max(vm.totalDays !== null && vm.totalDays !== undefined ? vm.totalDays : 30, day);
+  const start = new Date(nowIso);
+  start.setDate(start.getDate() - (day - 1));
+  const min = vm.minTemp;
+  const max = vm.maxTemp;
+  const sensors = (vm.sensors || []).map((s) => ({
+    id: s.id,
+    enabled: !!s.enabled,
+    lastReading: s.lastReading,
+    health: s.health === 'err' ? 'err' : 'ok',
+  }));
+  const yearMs = 365 * 86400000;
+  return {
+    id: vm.id,
+    serial: vm.id,
+    name: vm.name || vm.id,
+    farmerId: null,
+    firmware: 'V11 (live)',
+    installedAt: nowIso,
+    location: { district: '—', sector: '—', lat: 0, lng: 0 },
+    baseMin: min !== null && min !== undefined ? min : 35,
+    baseMax: max !== null && max !== undefined ? max : 37,
+    safetyFloor: 20,
+    batch: {
+      animal: nearestAnimal(min, max),
+      status: 'running',
+      startDate: start.toISOString(),
+      durationDays,
+      count: 0,
+    },
+    sensors,
+    heaterOn: !!vm.heaterOn,
+    manual: !!vm.manual,
+    lastSeen: vm.lastSeenAt || nowIso,
+    subscription: {
+      planId: null,
+      status: 'active',
+      startDate: nowIso,
+      endDate: new Date(new Date(nowIso).getTime() + yearMs).toISOString(),
+    },
+    manualLock: !!vm.locked,
+    manualStatus: null,
+    live: true,
+  };
+}
+
+/**
+ * Merge one live API VM into an existing store device. Telemetry always
+ * comes from the real device; meta the user set locally (farmer, custom
+ * name, location, an active paid plan) is preserved.
+ */
+export function overlayLiveDevice(device, vm, nowIso) {
+  if (!device || !vm || !vm.id || device.id !== vm.id) return device;
+  const live = storeDeviceFromVm(vm, nowIso);
+  if (!live) return device;
+  const keepName = device.name && device.name !== device.serial && device.name !== device.id ? device.name : live.name;
+  const keepSub = device.subscription && device.subscription.planId ? device.subscription : live.subscription;
+  return {
+    ...device,
+    ...live,
+    id: device.id,
+    serial: device.serial || device.id,
+    name: keepName,
+    farmerId: device.farmerId !== undefined && device.farmerId !== null ? device.farmerId : live.farmerId,
+    location: device.location && device.location.district && device.location.district !== '—'
+      ? device.location
+      : live.location,
+    subscription: keepSub,
+    manualLock: !!vm.locked,
+    live: true,
+  };
+}
+
+/**
+ * Map a store action onto firmware commands for a LIVE device. Returns []
+ * for non-live devices and for actions that need no hardware change. Rules
+ * mirror broodiinnox-api/lib/commands.js so the server accepts them.
+ */
+export function liveCommandPlan(action, device) {
+  if (!device || device.live !== true) return [];
+  if (!action || typeof action.type !== 'string') return [];
+  switch (action.type) {
+    case 'SET_TARGETS': {
+      const { min, max } = action;
+      const out = [];
+      const vMin = typeof min === 'number' ? min : NaN;
+      const vMax = typeof max === 'number' ? max : NaN;
+      if (Number.isFinite(vMax) && vMax >= 11 && vMax <= 50 && vMax !== device.baseMax) {
+        out.push({ command: 'max_temp', value: String(vMax) });
+      }
+      if (Number.isFinite(vMin) && vMin >= 10 && vMin <= 49 && vMin !== device.baseMin) {
+        out.push({ command: 'min_temp', value: String(vMin) });
+      }
+      // max_temp must land before min_temp (server checks min < current max)
+      out.sort((a, b) => (a.command === 'max_temp' ? -1 : 1));
+      return out;
+    }
+    case 'SET_SENSOR': {
+      const id = Number(action.sensorId);
+      if (id < 1 || id > 4) return [];
+      return [{ command: 'sensor', value: `DS${id}:${action.enabled ? 'ON' : 'OFF'}` }];
+    }
+    case 'LOCK_DEVICE':
+      return [{ command: 'device_active', value: action.lock ? 'LOCKED' : 'ACTIVE' }];
+    default:
+      return [];
+  }
 }

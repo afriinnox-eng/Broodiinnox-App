@@ -1,6 +1,12 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { buildSeed } from './seed.js';
 import { addDays, nowIso } from './time.js';
+import {
+  apiDeviceToVm, createIotApi,
+} from './iot.js';
+import {
+  liveCommandPlan, liveConfig, overlayLiveDevice, storeDeviceFromVm,
+} from './live.js';
 import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
   simulateMoMo, stepDownTargets, uid, PAYMENT_STATUS, SEVERITY,
@@ -184,6 +190,23 @@ function reducer(state, action) {
       );
     }
 
+    case 'LIVE_SYNC': {
+      // Overlay real broodiinnox-api state onto every store device whose id
+      // matches a live device (so a device registered in the UI shows the
+      // SAME real values as Admin Live), and add API-registered devices that
+      // are not in the store yet. Devices absent from the API are untouched.
+      const vms = (action.devices || []).filter((v) => v && v.id);
+      const byVm = new Map(vms.map((v) => [v.id, v]));
+      const liveIds = new Set(byVm.keys());
+      const now = nowIso();
+      let devices = state.devices.map((d) => (liveIds.has(d.id) ? overlayLiveDevice(d, byVm.get(d.id), now) : d));
+      const have = new Set(devices.map((d) => d.id));
+      for (const vm of vms) {
+        if (!have.has(vm.id)) devices = [...devices, storeDeviceFromVm(vm, now)];
+      }
+      return { ...state, devices, liveDeviceIds: [...liveIds] };
+    }
+
     case 'ASSIGN_DEVICE':
       return withAudit(
         { ...state, devices: state.devices.map((d) => (d.id === action.deviceId ? { ...d, farmerId: action.farmerId } : d)) },
@@ -306,6 +329,9 @@ function withAudit(state, entry) {
 function tick(state) {
   const now = nowIso();
   const devices = state.devices.map((dev) => {
+    // Real devices are written by LIVE_SYNC from the API — the mock ticker
+    // must never wander their sensors or pretend they are fresh.
+    if (dev.live) return dev;
     const day = dev.batch ? batchDay(dev.batch.startDate, dev.batch.durationDays, now) : 1;
     const { min, max } = stepDownTargets(dev.baseMin, dev.baseMax, day);
     const mid = (min + max) / 2;
@@ -403,6 +429,11 @@ const StoreContext = createContext(null);
 
 export function StoreProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, undefined, loadState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Live API client (null when VITE_IOT_API_URL is unset — simulation mode).
+  const api = useMemo(() => (liveConfig.enabled ? createIotApi(liveConfig) : null), []);
 
   useEffect(() => {
     try {
@@ -418,13 +449,64 @@ export function StoreProvider({ children }) {
     return () => clearInterval(t);
   }, []);
 
+  // Poll broodiinnox-api so every registered device reflects its real state
+  // in EVERY page (Systems, Devices, Map, details…), exactly like Admin Live.
+  useEffect(() => {
+    if (!liveConfig.enabled || !api) return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const data = await api.listDevices();
+        if (cancelled) return;
+        dispatch({
+          type: 'LIVE_SYNC',
+          devices: (data?.devices || []).map(apiDeviceToVm).filter(Boolean),
+          at: new Date().toISOString(),
+        });
+      } catch {
+        /* keep the last good overlay; Admin Live surfaces connectivity */
+      }
+    };
+    tick();
+    const t = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [api]);
+
   useEffect(() => {
     if (!state.toast) return undefined;
     const t = setTimeout(() => dispatch({ type: 'CLEAR_TOAST' }), 3600);
     return () => clearTimeout(t);
   }, [state.toast]);
 
-  const value = useMemo(() => ({ state, dispatch }), [state]);
+  // Forward user actions that touch a real device to the hardware via the
+  // API (register, targets, sensors, lock), best-effort with a toast on error.
+  const dispatchLive = useCallback((action) => {
+    dispatch(action);
+    if (!liveConfig.enabled || !api) return;
+    const st = stateRef.current;
+    const toastErr = (err) =>
+      dispatch({ type: 'TOAST', msg: `Live: ${err?.message || 'request failed'}`, kind: 'error' });
+    if (action?.type === 'REGISTER_DEVICE') {
+      const location = typeof action.location === 'string' ? action.location : action.location?.district || '';
+      api.registerDevice({
+        device_id: action.serial,
+        name: action.name || action.serial,
+        farmer_id: action.farmerId || 'dev',
+        location,
+      }).catch(toastErr);
+      return;
+    }
+    const dev = action?.deviceId ? st.devices.find((d) => d.id === action.deviceId) : null;
+    const plan = liveCommandPlan(action, dev);
+    for (const c of plan) {
+      api.sendCommand(action.deviceId, c.command, c.value).catch(toastErr);
+    }
+  }, [api]);
+
+  const value = useMemo(() => ({ state, dispatch: dispatchLive }), [state, dispatchLive]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
