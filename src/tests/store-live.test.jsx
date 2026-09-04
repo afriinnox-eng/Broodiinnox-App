@@ -250,6 +250,42 @@ it('syncs a rename of a live device back to the API registration', async () => {
   expect(out.getByText('Coop A')).toBeTruthy();
 });
 
+it('SYNC_TIME on a live device sends set_time now; RESTART is acknowledged locally', async () => {
+  let dispatch;
+  function Ctl2() {
+    const { state, dispatch: d } = useStore();
+    dispatch = d;
+    const dev = state.devices.find((x) => x.id === 'BROODIINNOX-001');
+    return <div>{dev && dev.live ? 'live' : 'pending'}</div>;
+  }
+  localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
+  const out = render(
+    <StoreProvider><Ctl2 /></StoreProvider>
+  );
+  await flushPoll();
+  expect(out.getByText('live')).toBeTruthy();
+
+  calls.length = 0;
+  await act(async () => {
+    dispatch({ type: 'SYNC_TIME', deviceId: 'BROODIINNOX-001' });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const cmd = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
+  expect(cmd).toBeTruthy();
+  expect(cmd.body).toEqual({ command: 'set_time', value: 'now' });
+
+  calls.length = 0;
+  await act(async () => {
+    dispatch({ type: 'RESTART_DEVICE', deviceId: 'BROODIINNOX-001' });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  // No firmware restart command exists; nothing must be posted, and the
+  // action is still acknowledged in the store (visible lastSeen refresh).
+  expect(calls.filter((c) => c.method === 'POST' && c.path.includes('/commands'))).toEqual([]);
+});
+
 it('does NOT forward actions on simulation devices to the API', async () => {
   let dispatch;
   function S() {

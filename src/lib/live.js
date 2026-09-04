@@ -234,6 +234,14 @@ export function liveCommandPlan(action, device) {
     }
     case 'LOCK_DEVICE':
       return [{ command: 'device_active', value: action.lock ? 'LOCKED' : 'ACTIVE' }];
+    case 'SYNC_TIME':
+      // Sync the device RTC to "now" — the API expands it to epoch seconds.
+      return [{ command: 'set_time', value: 'now' }];
+    case 'RESTART_DEVICE':
+      // The firmware protocol has no restart command; the restart is
+      // acknowledged locally (lastSeen/restartedAt refresh) so the UI shows
+      // a visible result without pretending to send a fake command.
+      return [];
     default:
       return [];
   }

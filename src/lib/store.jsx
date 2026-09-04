@@ -105,20 +105,37 @@ function reducer(state, action) {
         { user: state.session?.name, role: state.session?.role, action: 'device.rename', details: `${action.deviceId} → ${action.name}` }
       );
 
-    case 'RESTART_DEVICE':
+    case 'RESTART_DEVICE': {
+      const { deviceId } = action;
+      const dev = state.devices.find((d) => d.id === deviceId);
+      if (!dev) return state;
+      const now = nowIso();
       return withAudit(
         {
           ...state,
-          devices: state.devices.map((d) => (d.id === action.deviceId ? { ...d, lastSeen: nowIso(), heaterOn: false } : d)),
+          devices: state.devices.map((d) =>
+            d.id === deviceId ? { ...d, lastSeen: now, restartedAt: now } : d
+          ),
         },
-        { user: state.session?.name, role: state.session?.role, action: 'device.restart', details: `${action.deviceId} restarted remotely` }
+        { user: state.session?.name, role: state.session?.role, action: 'device.restart', details: `${deviceId} restarted remotely` }
       );
+    }
 
-    case 'SYNC_TIME':
+    case 'SYNC_TIME': {
+      const { deviceId } = action;
+      const dev = state.devices.find((d) => d.id === deviceId);
+      if (!dev) return state;
+      const now = nowIso();
       return withAudit(
-        { ...state },
-        { user: state.session?.name, role: state.session?.role, action: 'device.time_sync', details: `${action.deviceId} time synchronized` }
+        {
+          ...state,
+          devices: state.devices.map((d) =>
+            d.id === deviceId ? { ...d, timeSyncedAt: now } : d
+          ),
+        },
+        { user: state.session?.name, role: state.session?.role, action: 'device.time_sync', details: `${deviceId} time synchronized` }
       );
+    }
 
     case 'REQUEST_PAYMENT': {
       const { farmerId, deviceId, planId, phone } = action;

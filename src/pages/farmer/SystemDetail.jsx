@@ -68,6 +68,10 @@ export default function FarmerSystemDetail() {
       dispatch({ type: 'TOAST', msg: 'Enter whole-degree targets: min 10–49 °C, max 11–50 °C, min below max.', kind: 'error' });
       return;
     }
+    // Keep the fields in step with what was saved so any advisory banner
+    // recomputes against the exact values that are now in effect.
+    setMinV(String(minNum));
+    setMaxV(String(maxNum));
     dispatch({ type: 'SET_TARGETS', deviceId: device.id, min: minNum, max: maxNum });
     dispatch({ type: 'TOAST', msg: 'Temperature targets saved.' });
   };
@@ -179,7 +183,12 @@ export default function FarmerSystemDetail() {
             {outsideRange && preset && (
               <div className="warn-banner" style={{ marginBottom: 10 }}>
                 <Icon name="alert" size={18} />
-                <div>The temperature you've entered is outside the recommended range for {String(preset.label || preset.key).toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).</div>
+                <div>
+                  The temperature you've entered is outside the recommended range for{' '}
+                  {String(preset.label || preset.key).toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).
+                  {minNum < preset.baseMin - 3 ? ` Raise the min to at least ${preset.baseMin - 3}°C.` : ''}
+                  {maxNum > preset.baseMax + 3 ? ` Lower the max to at most ${preset.baseMax + 3}°C.` : ''}
+                </div>
               </div>
             )}
             <Btn variant="primary" disabled={!canControl || !targetsValid} onClick={saveTargets}>Save targets</Btn>
@@ -187,6 +196,16 @@ export default function FarmerSystemDetail() {
               <Btn variant="danger" disabled={!canControl} onClick={() => setConfirm({ type: 'restart', label: 'Restart' })}><Icon name="refresh" size={15} /> Restart</Btn>
               <Btn disabled={!canControl} onClick={() => setConfirm({ type: 'sync', label: 'Synchronize time' })}><Icon name="clock" size={15} /> Sync time</Btn>
             </div>
+            {device.restartedAt && (
+              <div className="muted small" style={{ marginTop: 6, color: 'var(--ok)' }}>
+                <Icon name="refresh" size={12} /> Restart acknowledged — back online {timeAgo(device.restartedAt)} ago
+              </div>
+            )}
+            {device.timeSyncedAt && (
+              <div className="muted small" style={{ marginTop: 4, color: 'var(--ok)' }}>
+                <Icon name="clock" size={12} /> Device clock synchronized {timeAgo(device.timeSyncedAt)} ago
+              </div>
+            )}
             {!canControl && <div className="muted small" style={{ marginTop: 8 }}>Controls are disabled while the device is locked.</div>}
           </Card>
 

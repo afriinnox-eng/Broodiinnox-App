@@ -123,3 +123,61 @@ describe('animal preset labels', () => {
     }
   });
 });
+
+describe('recommended-range warning on the temperature inputs', () => {
+  function clickButton(container, text) {
+    const b = Array.from(container.querySelectorAll('button')).find((x) => (x.textContent || '').trim() === text);
+    expect(b).toBeTruthy();
+    fireEvent.click(b);
+    return b;
+  }
+
+  it('warns on an out-of-range min and clears as soon as a valid value is typed', async () => {
+    localStorage.setItem(KEY, JSON.stringify(farmerSeed()));
+    const { container } = renderApp('#/farmer/systems/BRD001');
+    const { min } = targetsUi(container);
+
+    // BRD001 batch is chicken (recommended 35–37°C); our advisory shows
+    // when min < 32 or max > 40.
+    await act(async () => { fireEvent.change(min, { target: { value: '28' } }); });
+    expect(screen.getByText(/outside the recommended range/i)).toBeTruthy();
+
+    await act(async () => { fireEvent.change(min, { target: { value: '34' } }); });
+    expect(screen.queryByText(/outside the recommended range/i)).toBeNull();
+  });
+
+  it('warning does not reappear after saving valid values', async () => {
+    localStorage.setItem(KEY, JSON.stringify(farmerSeed()));
+    const { container } = renderApp('#/farmer/systems/BRD001');
+    const { min, max, save } = targetsUi(container);
+
+    await act(async () => { fireEvent.change(min, { target: { value: '28' } }); });
+    expect(screen.getByText(/outside the recommended range/i)).toBeTruthy();
+    await act(async () => { fireEvent.change(min, { target: { value: '34' } }); });
+    await act(async () => { fireEvent.change(max, { target: { value: '37' } }); });
+    expect(screen.queryByText(/outside the recommended range/i)).toBeNull();
+
+    await act(async () => { fireEvent.click(save); });
+    expect(probedDevice.baseMin).toBe(34);
+    expect(screen.queryByText(/outside the recommended range/i)).toBeNull();
+  });
+
+  it('Restart and Sync time give visible results and are recorded', async () => {
+    localStorage.setItem(KEY, JSON.stringify(farmerSeed()));
+    const { container } = renderApp('#/farmer/systems/BRD001');
+
+    // Restart through the confirmation modal
+    clickButton(container, 'Restart');
+    expect(screen.getByText(/Restart — confirm/i)).toBeTruthy();
+    clickButton(container, 'Yes, restart');
+    expect(probedDevice.restartedAt).toBeTruthy();
+    expect(screen.getByText(/Restart acknowledged/i)).toBeTruthy();
+
+    // Sync time through its confirmation modal
+    clickButton(container, 'Sync time');
+    expect(screen.getByText(/Synchronize time — confirm/i)).toBeTruthy();
+    clickButton(container, 'Yes, synchronize time');
+    expect(probedDevice.timeSyncedAt).toBeTruthy();
+    expect(screen.getByText(/Device clock synchronized/i)).toBeTruthy();
+  });
+});

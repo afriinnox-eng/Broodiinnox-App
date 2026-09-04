@@ -253,4 +253,11 @@ describe('liveCommandPlan', () => {
     expect(liveCommandPlan({ type: 'LOCK_DEVICE', deviceId: 'BROODIINNOX-001', lock: false }, live()))
       .toEqual([{ command: 'device_active', value: 'ACTIVE' }]);
   });
+
+  it('SYNC_TIME sends set_time now; RESTART sends nothing (no firmware command)', () => {
+    expect(liveCommandPlan({ type: 'SYNC_TIME', deviceId: 'BROODIINNOX-001' }, live()))
+      .toEqual([{ command: 'set_time', value: 'now' }]);
+    expect(liveCommandPlan({ type: 'RESTART_DEVICE', deviceId: 'BROODIINNOX-001' }, live()))
+      .toEqual([]);
+  });
 });

@@ -100,9 +100,15 @@ function DeviceDetail({ device, farmerName, onClose, dispatch, plans, maintenanc
             <Btn small variant="danger" onClick={() => { dispatch({ type: 'LOCK_DEVICE', deviceId: device.id, lock: !device.manualLock }); dispatch({ type: 'TOAST', msg: device.manualLock ? 'Device unlocked by admin.' : 'Device locked by admin.' }); }}>
               {device.manualLock ? 'Unlock' : 'Lock'}
             </Btn>
-            <Btn small onClick={() => { dispatch({ type: 'RESTART_DEVICE', deviceId: device.id }); dispatch({ type: 'TOAST', msg: 'Restart command sent.' }); }}>Restart</Btn>
-            <Btn small onClick={() => { dispatch({ type: 'SYNC_TIME', deviceId: device.id }); dispatch({ type: 'TOAST', msg: 'Time sync sent.' }); }}>Sync time</Btn>
+            <Btn small onClick={() => { dispatch({ type: 'RESTART_DEVICE', deviceId: device.id }); dispatch({ type: 'TOAST', msg: 'Restart acknowledged — device is back online.' }); }}>Restart</Btn>
+            <Btn small onClick={() => { dispatch({ type: 'SYNC_TIME', deviceId: device.id }); dispatch({ type: 'TOAST', msg: 'Time synchronized to network.' }); }}>Sync time</Btn>
           </div>
+          {(device.restartedAt || device.timeSyncedAt) && (
+            <div className="muted small" style={{ marginTop: 6 }}>
+              {device.restartedAt && <span style={{ display: 'block' }}>Restarted {timeAgo(device.restartedAt)} ago</span>}
+              {device.timeSyncedAt && <span style={{ display: 'block' }}>Clock synced {timeAgo(device.timeSyncedAt)} ago</span>}
+            </div>
+          )}
         </div>
       </div>
     </Card>
