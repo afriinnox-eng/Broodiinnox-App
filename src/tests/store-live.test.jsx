@@ -250,7 +250,7 @@ it('syncs a rename of a live device back to the API registration', async () => {
   expect(out.getByText('Coop A')).toBeTruthy();
 });
 
-it('SYNC_TIME on a live device sends set_time now; RESTART is acknowledged locally', async () => {
+it('SYNC_TIME on a live device sends set_time now; RESTART sends the reboot command', async () => {
   let dispatch;
   function Ctl2() {
     const { state, dispatch: d } = useStore();
@@ -271,9 +271,9 @@ it('SYNC_TIME on a live device sends set_time now; RESTART is acknowledged local
     await Promise.resolve();
     await Promise.resolve();
   });
-  const cmd = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
-  expect(cmd).toBeTruthy();
-  expect(cmd.body).toEqual({ command: 'set_time', value: 'now' });
+  const sync = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
+  expect(sync).toBeTruthy();
+  expect(sync.body).toEqual({ command: 'set_time', value: 'now' });
 
   calls.length = 0;
   await act(async () => {
@@ -281,9 +281,9 @@ it('SYNC_TIME on a live device sends set_time now; RESTART is acknowledged local
     await Promise.resolve();
     await Promise.resolve();
   });
-  // No firmware restart command exists; nothing must be posted, and the
-  // action is still acknowledged in the store (visible lastSeen refresh).
-  expect(calls.filter((c) => c.method === 'POST' && c.path.includes('/commands'))).toEqual([]);
+  const boot = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
+  expect(boot).toBeTruthy();
+  expect(boot.body).toEqual({ command: 'restart', value: 'RESTART' });
 });
 
 it('does NOT forward actions on simulation devices to the API', async () => {

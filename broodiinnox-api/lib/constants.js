@@ -39,6 +39,7 @@ export const CONTROL_TOPICS = {
   animal_preset: 'animal_preset',
   device_active: 'device_active',
   set_time: 'set_time',
+  restart: 'restart',
 };
 
 /**
@@ -56,6 +57,7 @@ export const COMMANDS_BLOCKED_WHEN_LOCKED = new Set([
   'factory_reset',
   'animal_preset',
   'set_time',
+  'restart',
 ]);
 
 /** Remote set-point bounds enforced by mqtt_callback in the firmware. */

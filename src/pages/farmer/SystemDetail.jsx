@@ -60,8 +60,6 @@ export default function FarmerSystemDetail() {
 
   if (!device) return <div className="empty">System not found.</div>;
 
-  const outsideRange = targetsValid && !!preset
-    && (minNum < preset.baseMin - 3 || maxNum > preset.baseMax + 3);
   const invalidTargets = bothEdited && !targetsValid;
   const saveTargets = () => {
     if (!targetsValid) {
@@ -180,18 +178,12 @@ export default function FarmerSystemDetail() {
                 <div>Enter whole-degree targets between 10–49 °C (min) and 11–50 °C (max), with min below max.</div>
               </div>
             )}
-            {outsideRange && preset && (
-              <div className="warn-banner" style={{ marginBottom: 10 }}>
-                <Icon name="alert" size={18} />
-                <div>
-                  The temperature you've entered is outside the recommended range for{' '}
-                  {String(preset.label || preset.key).toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).
-                  {minNum < preset.baseMin - 3 ? ` Raise the min to at least ${preset.baseMin - 3}°C.` : ''}
-                  {maxNum > preset.baseMax + 3 ? ` Lower the max to at most ${preset.baseMax + 3}°C.` : ''}
-                </div>
+            <Btn variant="primary" disabled={!canControl || !targetsValid} onClick={saveTargets}>Save targets</Btn>
+            {preset && device.batch && device.batch.status === 'running' && (
+              <div className="muted small" style={{ marginTop: 6 }}>
+                Recommended for {String(preset.label || preset.key).toLowerCase()}: {preset.baseMin}–{preset.baseMax}°C (targets step down weekly with age).
               </div>
             )}
-            <Btn variant="primary" disabled={!canControl || !targetsValid} onClick={saveTargets}>Save targets</Btn>
             <div className="row" style={{ marginTop: 12 }}>
               <Btn variant="danger" disabled={!canControl} onClick={() => setConfirm({ type: 'restart', label: 'Restart' })}><Icon name="refresh" size={15} /> Restart</Btn>
               <Btn disabled={!canControl} onClick={() => setConfirm({ type: 'sync', label: 'Synchronize time' })}><Icon name="clock" size={15} /> Sync time</Btn>
@@ -210,7 +202,7 @@ export default function FarmerSystemDetail() {
           </Card>
 
           <Card title="Batch">
-            {device.batch ? (
+            {device.batch && device.batch.status === 'running' ? (
               <>
                 <div className="row-between">
                   <div>
@@ -225,10 +217,19 @@ export default function FarmerSystemDetail() {
                   <Btn variant="danger" small onClick={() => { dispatch({ type: 'END_BATCH', deviceId: device.id }); dispatch({ type: 'TOAST', msg: 'Batch ended.' }); }}>End batch</Btn>
                 </div>
               </>
+            ) : device.batch && device.batch.status === 'ended' ? (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{ANIMALS[device.batch.animal]?.label} batch — ended</div>
+                <div className="muted small">
+                  Ended {device.lastBatchEnd ? fmtDate(device.lastBatchEnd) : 'recently'} · started {fmtDate(device.batch.startDate)} · {device.batch.count} animals
+                </div>
+              </div>
             ) : (
               <div className="muted" style={{ marginBottom: 10 }}>No active batch.</div>
             )}
-            <Btn variant="green" small onClick={() => setStartBatch(true)}><Icon name="egg" size={15} /> {device.batch ? 'Start new batch' : 'Start a batch'}</Btn>
+            <div className="btn-row" style={{ marginTop: device.batch ? 4 : 0 }}>
+              <Btn variant="green" small onClick={() => setStartBatch(true)}><Icon name="egg" size={15} /> Start a new batch</Btn>
+            </div>
           </Card>
 
           <Card title="Subscription">

@@ -124,6 +124,39 @@ describe('animal preset labels', () => {
   });
 });
 
+describe('batch card buttons (farmer system detail)', () => {
+  function clickButton(container, text) {
+    const b = Array.from(container.querySelectorAll('button')).find((x) => (x.textContent || '').trim() === text);
+    expect(b).toBeTruthy();
+    fireEvent.click(b);
+    return b;
+  }
+
+  it('End batch gives a visible ended state and Start new batch starts a running one', async () => {
+    localStorage.setItem(KEY, JSON.stringify(farmerSeed()));
+    const { container } = renderApp('#/farmer/systems/BRD001');
+
+    // BRD001 seed has a running chicken batch
+    expect(screen.getByText(/Chicken batch/i)).toBeTruthy();
+    expect(probedDevice.batch.status).toBe('running');
+
+    await act(async () => { clickButton(container, 'End batch'); });
+    expect(probedDevice.batch.status).toBe('ended');
+    expect(probedDevice.lastBatchEnd).toBeTruthy();
+    expect(screen.getByText(/Chicken batch — ended/i)).toBeTruthy();
+    expect(screen.queryByText('End batch')).toBeNull(); // ended batch has no End button
+
+    // Start a brand new batch from the same card
+    await act(async () => { clickButton(container, 'Start a new batch'); });
+    expect(screen.getByText(/Start a new brooding batch/i)).toBeTruthy();
+    await act(async () => { clickButton(container, 'Start batch'); });
+    expect(probedDevice.batch.status).toBe('running');
+    expect(probedDevice.batch.count).toBe(500);
+    expect(probedDevice.batch.durationDays).toBe(21);
+    expect(screen.getByText(/Chicken batch/i)).toBeTruthy();
+  });
+});
+
 describe('recommended-range warning on the temperature inputs', () => {
   function clickButton(container, text) {
     const b = Array.from(container.querySelectorAll('button')).find((x) => (x.textContent || '').trim() === text);
@@ -137,13 +170,12 @@ describe('recommended-range warning on the temperature inputs', () => {
     const { container } = renderApp('#/farmer/systems/BRD001');
     const { min } = targetsUi(container);
 
-    // BRD001 batch is chicken (recommended 35–37°C); our advisory shows
-    // when min < 32 or max > 40.
-    await act(async () => { fireEvent.change(min, { target: { value: '28' } }); });
-    expect(screen.getByText(/outside the recommended range/i)).toBeTruthy();
+    // Min below the firmware floor (10°C) is invalid and must warn.
+    await act(async () => { fireEvent.change(min, { target: { value: '7' } }); });
+    expect(screen.getByText(/Enter whole-degree targets/i)).toBeTruthy();
 
     await act(async () => { fireEvent.change(min, { target: { value: '34' } }); });
-    expect(screen.queryByText(/outside the recommended range/i)).toBeNull();
+    expect(screen.queryByText(/Enter whole-degree targets/i)).toBeNull();
   });
 
   it('warning does not reappear after saving valid values', async () => {
@@ -151,15 +183,15 @@ describe('recommended-range warning on the temperature inputs', () => {
     const { container } = renderApp('#/farmer/systems/BRD001');
     const { min, max, save } = targetsUi(container);
 
-    await act(async () => { fireEvent.change(min, { target: { value: '28' } }); });
-    expect(screen.getByText(/outside the recommended range/i)).toBeTruthy();
+    await act(async () => { fireEvent.change(min, { target: { value: '7' } }); });
+    expect(screen.getByText(/Enter whole-degree targets/i)).toBeTruthy();
     await act(async () => { fireEvent.change(min, { target: { value: '34' } }); });
     await act(async () => { fireEvent.change(max, { target: { value: '37' } }); });
-    expect(screen.queryByText(/outside the recommended range/i)).toBeNull();
+    expect(screen.queryByText(/Enter whole-degree targets/i)).toBeNull();
 
     await act(async () => { fireEvent.click(save); });
     expect(probedDevice.baseMin).toBe(34);
-    expect(screen.queryByText(/outside the recommended range/i)).toBeNull();
+    expect(screen.queryByText(/Enter whole-degree targets/i)).toBeNull();
   });
 
   it('Restart and Sync time give visible results and are recorded', async () => {

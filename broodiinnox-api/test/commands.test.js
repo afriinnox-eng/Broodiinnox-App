@@ -17,7 +17,7 @@ test('every firmware control command has a builder that produces a topic+payload
   const vectors = [
     ['relay', 'ON'], ['max_temp', '36'], ['min_temp', '32'], ['total_days', '30'],
     ['sensor', 'DS1:ON'], ['factory_reset', 'RESET'], ['animal_preset', 'Chicken'],
-    ['device_active', 'ACTIVE'], ['set_time', 'now'],
+    ['device_active', 'ACTIVE'], ['set_time', 'now'], ['restart', 'RESTART'],
   ];
   for (const [cmd, value] of vectors) {
     const out = msg(cmd, value);
@@ -117,6 +117,13 @@ test('factory_reset only accepts RESET', () => {
   for (const bad of ['YES', 'REBOOT', '', 'RESET NOW']) assert.equal(msg('factory_reset', bad).ok, false);
 });
 
+test('restart only accepts RESTART and maps to the control/restart topic', () => {
+  assert.equal(msg('restart', 'RESTART').ok, true);
+  assert.equal(msg('restart', 'restart').payload, 'RESTART', 'case-insensitive in, canonical out');
+  assert.equal(msg('restart', 'RESTART').topic, `${DEFAULT_TOPIC_PREFIX}/${ID}/control/restart`);
+  for (const bad of ['REBOOT', 'RESET', 'ON', '', 'RESTART NOW']) assert.equal(msg('restart', bad).ok, false);
+});
+
 test('animal_preset accepts exactly the firmware preset names', () => {
   assert.deepEqual(ANIMAL_PRESETS, ['Chicken', 'Pig', 'Turkey', 'Duck']);
   for (const name of ANIMAL_PRESETS) {
@@ -147,6 +154,7 @@ test('while locked, every firmware-guarded command is refused; nothing else is',
   const samples = {
     relay: 'ON', max_temp: '36', min_temp: '32', total_days: '30',
     sensor: 'DS1:ON', factory_reset: 'RESET', animal_preset: 'Chicken', set_time: 'now',
+    restart: 'RESTART',
   };
   for (const [cmd, value] of Object.entries(samples)) {
     const out = msg(cmd, value, ctx);

@@ -238,10 +238,9 @@ export function liveCommandPlan(action, device) {
       // Sync the device RTC to "now" — the API expands it to epoch seconds.
       return [{ command: 'set_time', value: 'now' }];
     case 'RESTART_DEVICE':
-      // The firmware protocol has no restart command; the restart is
-      // acknowledged locally (lastSeen/restartedAt refresh) so the UI shows
-      // a visible result without pretending to send a fake command.
-      return [];
+      // Real remote reboot: firmware subscribes to control/restart and the
+      // API accepts the RESTART payload (clean modem power-down, ESP reboot).
+      return [{ command: 'restart', value: 'RESTART' }];
     default:
       return [];
   }

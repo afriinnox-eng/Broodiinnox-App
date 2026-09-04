@@ -131,6 +131,15 @@ export function buildControlMessage(deviceId, command, value, ctx = {}) {
       return ok(command, prefix, deviceId, FACTORY_RESET_PAYLOAD);
     }
 
+    case 'restart': {
+      // Remote device reboot: firmware mqtt_callback restarts the ESP32 on
+      // exactly "RESTART" (clean modem power-down first).
+      if (typeof value !== 'string' || value.trim().toUpperCase() !== 'RESTART') {
+        return fail(command, 'restart expects the payload "RESTART"', 'payload = RESTART');
+      }
+      return ok(command, prefix, deviceId, 'RESTART');
+    }
+
     case 'animal_preset': {
       if (typeof value !== 'string') return fail(command, 'animal_preset expects a preset name', ANIMAL_PRESETS.join('|'));
       const hit = ANIMAL_PRESETS.find((n) => n.toLowerCase() === value.trim().toLowerCase());
