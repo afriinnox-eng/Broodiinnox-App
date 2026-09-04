@@ -270,3 +270,67 @@ it('does NOT forward actions on simulation devices to the API', async () => {
   const cmds = calls.filter((c) => c.method === 'POST' && c.path.includes('/commands'));
   expect(cmds).toEqual([]); // mock devices stay mock
 });
+
+it('END_BATCH on a live device survives the next LIVE_SYNC poll', async () => {
+  let dispatch;
+  function P() {
+    const { state, dispatch: d } = useStore();
+    dispatch = d;
+    const dev = state.devices.find((x) => x.id === 'BROODIINNOX-001');
+    return <div>{dev ? `${dev.batch && dev.batch.status}${dev.batch && dev.batch.synth ? '-synth' : ''}` : 'pending'}</div>;
+  }
+  const seed = JSON.parse(JSON.stringify(buildSeed()));
+  seed.devices.push({
+    id: 'BROODIINNOX-001', serial: 'BROODIINNOX-001', name: 'BROODIINNOX-001', farmerId: 'f1',
+    location: { district: 'Kigali', sector: 'Gasabo', lat: 0, lng: 0 }, sensors: [],
+    subscription: { planId: null, status: 'inactive', startDate: null, endDate: null },
+  });
+  localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...seed, session: null, reminderSent: [] }));
+  const out = render(
+    <StoreProvider><P /></StoreProvider>
+  );
+  await flushPoll(); // first poll creates the live row with a synthesized running batch
+  expect(out.getByText('running-synth')).toBeTruthy();
+
+  await act(async () => {
+    dispatch({ type: 'END_BATCH', deviceId: 'BROODIINNOX-001' });
+  });
+  expect(out.getByText('ended-synth')).toBeTruthy();
+
+  await flushPoll(); // another LIVE_SYNC must NOT resurrect the batch as running
+  expect(out.getByText('ended-synth')).toBeTruthy();
+});
+
+it('START_BATCH on a live device survives the next LIVE_SYNC poll', async () => {
+  let dispatch;
+  function P2() {
+    const { state, dispatch: d } = useStore();
+    dispatch = d;
+    const dev = state.devices.find((x) => x.id === 'BROODIINNOX-001');
+    const b = dev && dev.batch;
+    return <div>{b ? `${b.animal}:${b.status}:${b.count}` : 'none'}</div>;
+  }
+  const seed = JSON.parse(JSON.stringify(buildSeed()));
+  seed.devices.push({
+    id: 'BROODIINNOX-001', serial: 'BROODIINNOX-001', name: 'BROODIINNOX-001', farmerId: 'f1',
+    location: { district: 'Kigali', sector: 'Gasabo', lat: 0, lng: 0 }, sensors: [],
+    subscription: { planId: null, status: 'inactive', startDate: null, endDate: null },
+  });
+  localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...seed, session: null, reminderSent: [] }));
+  const out = render(
+    <StoreProvider><P2 /></StoreProvider>
+  );
+  await flushPoll();
+
+  await act(async () => {
+    dispatch({
+      type: 'START_BATCH', deviceId: 'BROODIINNOX-001', animal: 'duck',
+      durationDays: 28, count: 400, startDate: '2026-09-01T06:00:00.000Z',
+    });
+  });
+  expect(out.getByText('duck:running:400')).toBeTruthy();
+
+  await flushPoll(); // LIVE_SYNC must not swap the chosen duck batch for a synth one
+  expect(out.getByText('duck:running:400')).toBeTruthy();
+  expect(out.queryByText('duck:running:0')).toBeNull(); // count not reset by synth
+});

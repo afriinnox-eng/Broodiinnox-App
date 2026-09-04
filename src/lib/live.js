@@ -151,6 +151,7 @@ export function storeDeviceFromVm(vm, nowIso) {
       startDate: start.toISOString(),
       durationDays,
       count: 0,
+      synth: true, // placeholder derived from the API row, not a user-started batch
     },
     sensors,
     heaterOn: !!vm.heaterOn,
@@ -179,6 +180,12 @@ export function overlayLiveDevice(device, vm, nowIso) {
   if (!live) return device;
   const keepName = device.name && device.name !== device.serial && device.name !== device.id ? device.name : live.name;
   const keepSub = device.subscription && device.subscription.planId ? device.subscription : live.subscription;
+  // A batch the user started/ended (or an explicit ended state) is product
+  // state — the live poll must NOT re-synthesize it as a fresh "running"
+  // batch, otherwise End/Start batch would appear to do nothing.
+  const userBatch = device.batch && device.batch.synth !== true;
+  const endedBatch = device.batch && device.batch.status === 'ended';
+  const keepBatch = userBatch || endedBatch;
   return {
     ...device,
     ...live,
@@ -190,6 +197,7 @@ export function overlayLiveDevice(device, vm, nowIso) {
       ? device.location
       : live.location,
     subscription: keepSub,
+    batch: keepBatch ? device.batch : live.batch,
     manualLock: !!vm.locked,
     live: true,
   };
