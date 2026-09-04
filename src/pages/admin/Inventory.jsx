@@ -59,11 +59,16 @@ export default function AdminInventory() {
 function AddItemModal({ dispatch, onClose }) {
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
-  const [stock, setStock] = useState(10);
-  const [minStock, setMin] = useState(5);
+  const [stock, setStock] = useState('10');
+  const [minStock, setMin] = useState('5');
+  const stockNum = Number(stock);
+  const minNum = Number(minStock);
+  const formValid = name.trim() !== ''
+    && Number.isInteger(stockNum) && stockNum >= 0
+    && Number.isInteger(minNum) && minNum >= 0;
   const save = () => {
-    if (!name.trim()) return;
-    dispatch({ type: 'INVENTORY_ADD', item: { name, sku, stock: Number(stock), minStock: Number(minStock), unit: 'pcs' } });
+    if (!formValid) return;
+    dispatch({ type: 'INVENTORY_ADD', item: { name, sku, stock: stockNum, minStock: minNum, unit: 'pcs' } });
     dispatch({ type: 'TOAST', msg: 'Item added to inventory.' });
     onClose();
   };
@@ -72,10 +77,10 @@ function AddItemModal({ dispatch, onClose }) {
       <Field label="Item name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
       <Field label="SKU"><input value={sku} onChange={(e) => setSku(e.target.value)} /></Field>
       <div className="grid cols-2" style={{ gap: 10 }}>
-        <Field label="Initial stock"><input type="number" value={stock} onChange={(e) => setStock(e.target.value)} /></Field>
-        <Field label="Minimum stock"><input type="number" value={minStock} onChange={(e) => setMin(e.target.value)} /></Field>
+        <Field label="Initial stock"><input type="number" min={0} value={stock} onChange={(e) => setStock(e.target.value)} /></Field>
+        <Field label="Minimum stock"><input type="number" min={0} value={minStock} onChange={(e) => setMin(e.target.value)} /></Field>
       </div>
-      <div className="btn-row"><Btn variant="primary" onClick={save}>Add</Btn><Btn onClick={onClose}>Cancel</Btn></div>
+      <div className="btn-row"><Btn variant="primary" disabled={!formValid} onClick={save}>Add</Btn><Btn onClick={onClose}>Cancel</Btn></div>
     </Modal>
   );
 }

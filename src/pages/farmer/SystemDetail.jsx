@@ -31,8 +31,8 @@ export default function FarmerSystemDetail() {
   const device = state.devices.find((d) => d.id === id && d.farmerId === state.session.id);
   const now = new Date().toISOString();
 
-  const [minV, setMinV] = useState(device?.baseMin ?? 35);
-  const [maxV, setMaxV] = useState(device?.baseMax ?? 37);
+  const [minV, setMinV] = useState(String(device?.baseMin ?? 35));
+  const [maxV, setMaxV] = useState(String(device?.baseMax ?? 37));
   const [confirm, setConfirm] = useState(null); // {type, label}
   const [startBatch, setStartBatch] = useState(false);
 
@@ -48,11 +48,27 @@ export default function FarmerSystemDetail() {
   const history = useMemo(() => (device ? historyFor(device) : []), [device]);
   const alerts = state.alerts.filter((a) => a.deviceId === device?.id).slice(0, 5);
 
+  // Numeric validation for the target inputs. An empty or half-typed field
+  // is NOT a number: it must never be coerced to 0/NaN and pushed to the
+  // device. Only whole degrees, min 10..49 / max 11..50 with min < max.
+  const minNum = Number(minV);
+  const maxNum = Number(maxV);
+  const minOk = Number.isInteger(minNum) && minNum >= 10 && minNum <= 49;
+  const maxOk = Number.isInteger(maxNum) && maxNum >= 11 && maxNum <= 50;
+  const targetsValid = minOk && maxOk && minNum < maxNum;
+  const bothEdited = String(minV).trim() !== '' || String(maxV).trim() !== '';
+
   if (!device) return <div className="empty">System not found.</div>;
 
-  const outsideRange = !!preset && (minV < preset.baseMin - 3 || maxV > preset.baseMax + 3);
+  const outsideRange = targetsValid && !!preset
+    && (minNum < preset.baseMin - 3 || maxNum > preset.baseMax + 3);
+  const invalidTargets = bothEdited && !targetsValid;
   const saveTargets = () => {
-    dispatch({ type: 'SET_TARGETS', deviceId: device.id, min: Number(minV), max: Number(maxV) });
+    if (!targetsValid) {
+      dispatch({ type: 'TOAST', msg: 'Enter whole-degree targets: min 10–49 °C, max 11–50 °C, min below max.', kind: 'error' });
+      return;
+    }
+    dispatch({ type: 'SET_TARGETS', deviceId: device.id, min: minNum, max: maxNum });
     dispatch({ type: 'TOAST', msg: 'Temperature targets saved.' });
   };
   const doConfirm = () => {
@@ -151,16 +167,22 @@ export default function FarmerSystemDetail() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Card title="Remote control">
             <div className="grid cols-2" style={{ gap: 10 }}>
-              <Field label="Min temperature (°C)"><input type="number" value={minV} onChange={(e) => setMinV(e.target.value)} disabled={!canControl} /></Field>
-              <Field label="Max temperature (°C)"><input type="number" value={maxV} onChange={(e) => setMaxV(e.target.value)} disabled={!canControl} /></Field>
+              <Field label="Min temperature (°C)"><input type="number" min={10} max={49} step={1} value={minV} onChange={(e) => setMinV(e.target.value)} disabled={!canControl} /></Field>
+              <Field label="Max temperature (°C)"><input type="number" min={11} max={50} step={1} value={maxV} onChange={(e) => setMaxV(e.target.value)} disabled={!canControl} /></Field>
             </div>
-            {outsideRange && (
+            {invalidTargets && (
               <div className="warn-banner" style={{ marginBottom: 10 }}>
                 <Icon name="alert" size={18} />
-                <div>The temperature you've entered is outside the recommended range for {preset.label.toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).</div>
+                <div>Enter whole-degree targets between 10–49 °C (min) and 11–50 °C (max), with min below max.</div>
               </div>
             )}
-            <Btn variant="primary" disabled={!canControl} onClick={saveTargets}>Save targets</Btn>
+            {outsideRange && preset && (
+              <div className="warn-banner" style={{ marginBottom: 10 }}>
+                <Icon name="alert" size={18} />
+                <div>The temperature you've entered is outside the recommended range for {String(preset.label || preset.key).toLowerCase()} ({preset.baseMin}–{preset.baseMax}°C).</div>
+              </div>
+            )}
+            <Btn variant="primary" disabled={!canControl || !targetsValid} onClick={saveTargets}>Save targets</Btn>
             <div className="row" style={{ marginTop: 12 }}>
               <Btn variant="danger" disabled={!canControl} onClick={() => setConfirm({ type: 'restart', label: 'Restart' })}><Icon name="refresh" size={15} /> Restart</Btn>
               <Btn disabled={!canControl} onClick={() => setConfirm({ type: 'sync', label: 'Synchronize time' })}><Icon name="clock" size={15} /> Sync time</Btn>
@@ -231,26 +253,29 @@ export default function FarmerSystemDetail() {
 
 function StartBatchModal({ device, onClose, dispatch, now }) {
   const [animal, setAnimal] = useState('chicken');
-  const [duration, setDuration] = useState(21);
-  const [count, setCount] = useState(500);
+  const [duration, setDuration] = useState('21');
+  const [count, setCount] = useState('500');
   const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
   const preset = ANIMALS[animal];
+  const durNum = Number(duration);
+  const cntNum = Number(count);
+  const formValid = Number.isInteger(durNum) && durNum >= 1 && Number.isInteger(cntNum) && cntNum >= 1;
   return (
     <Modal title="Start a new brooding batch" onClose={onClose}>
       <Field label="Animal type">
-        <select value={animal} onChange={(e) => { setAnimal(e.target.value); setDuration(ANIMALS[e.target.value].durationDays); }}>
+        <select value={animal} onChange={(e) => { setAnimal(e.target.value); setDuration(String(ANIMALS[e.target.value].durationDays)); }}>
           {Object.values(ANIMALS).map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
         </select>
       </Field>
       <div className="grid cols-3" style={{ gap: 10 }}>
-        <Field label="Duration (days)"><input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} /></Field>
-        <Field label="Animals"><input type="number" value={count} onChange={(e) => setCount(Number(e.target.value))} /></Field>
+        <Field label="Duration (days)"><input type="number" min={1} value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>
+        <Field label="Animals"><input type="number" min={1} value={count} onChange={(e) => setCount(e.target.value)} /></Field>
         <Field label="Start date"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
       </div>
       <p className="muted small">Recommended range: {preset.baseMin}–{preset.baseMax}°C, {preset.durationDays} days. The system auto-steps targets down as the animals grow.</p>
       <div className="btn-row">
-        <Btn variant="green" onClick={() => {
-          dispatch({ type: 'START_BATCH', deviceId: device.id, animal, durationDays: duration, count, startDate: new Date(`${start}T06:00:00`).toISOString() });
+        <Btn variant="green" disabled={!formValid} onClick={() => {
+          dispatch({ type: 'START_BATCH', deviceId: device.id, animal, durationDays: durNum, count: cntNum, startDate: new Date(`${start}T06:00:00`).toISOString() });
           dispatch({ type: 'TOAST', msg: 'Batch started.' });
           onClose();
         }}>Start batch</Btn>

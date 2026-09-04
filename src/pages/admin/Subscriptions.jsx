@@ -62,14 +62,19 @@ export default function AdminSubscriptions() {
 
 function PlanModal({ plan, dispatch, onClose }) {
   const [name, setName] = useState(plan?.name || '');
-  const [durationDays, setDuration] = useState(plan?.durationDays || 30);
-  const [price, setPrice] = useState(plan?.price || 25000);
+  const [durationDays, setDuration] = useState(String(plan?.durationDays || 30));
+  const [price, setPrice] = useState(String(plan?.price || 25000));
   const [description, setDescription] = useState(plan?.description || '');
+  const durNum = Number(durationDays);
+  const priceNum = Number(price);
+  const formValid = Number.isInteger(durNum) && durNum >= 1
+    && Number.isFinite(priceNum) && priceNum >= 0 && name.trim() !== '';
   const save = () => {
+    if (!formValid) return;
     if (plan) {
-      dispatch({ type: 'UPDATE_PLAN', id: plan.id, patch: { name, durationDays, price: Number(price), description } });
+      dispatch({ type: 'UPDATE_PLAN', id: plan.id, patch: { name, durationDays: durNum, price: priceNum, description } });
     } else {
-      dispatch({ type: 'CREATE_PLAN', plan: { name, durationDays, price: Number(price), description } });
+      dispatch({ type: 'CREATE_PLAN', plan: { name, durationDays: durNum, price: priceNum, description } });
     }
     dispatch({ type: 'TOAST', msg: 'Plan saved. Historical transactions keep the original price paid.' });
     onClose();
@@ -78,11 +83,11 @@ function PlanModal({ plan, dispatch, onClose }) {
     <Modal title={plan ? 'Edit plan' : 'Create plan'} onClose={onClose}>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 45-Day" /></Field>
       <div className="grid cols-2" style={{ gap: 10 }}>
-        <Field label="Duration (days)"><input type="number" value={durationDays} onChange={(e) => setDuration(Number(e.target.value))} /></Field>
-        <Field label="Price (RWF)"><input type="number" value={price} onChange={(e) => setPrice(Number(e.target.value))} /></Field>
+        <Field label="Duration (days)"><input type="number" min={1} value={durationDays} onChange={(e) => setDuration(e.target.value)} /></Field>
+        <Field label="Price (RWF)"><input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} /></Field>
       </div>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-      <div className="btn-row"><Btn variant="primary" onClick={save}>Save</Btn><Btn onClick={onClose}>Cancel</Btn></div>
+      <div className="btn-row"><Btn variant="primary" disabled={!formValid} onClick={save}>Save</Btn><Btn onClick={onClose}>Cancel</Btn></div>
     </Modal>
   );
 }

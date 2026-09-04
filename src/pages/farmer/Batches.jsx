@@ -85,28 +85,31 @@ export default function FarmerBatches() {
 function NewBatchForm({ devices, dispatch, onDone }) {
   const [deviceId, setDeviceId] = useState(devices[0]?.id || '');
   const [animal, setAnimal] = useState('chicken');
-  const [duration, setDuration] = useState(21);
-  const [count, setCount] = useState(500);
+  const [duration, setDuration] = useState('21');
+  const [count, setCount] = useState('500');
   const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
+  const durNum = Number(duration);
+  const cntNum = Number(count);
+  const formValid = Number.isInteger(durNum) && durNum >= 1 && Number.isInteger(cntNum) && cntNum >= 1;
   if (!devices.length) return <div className="muted">You have no systems to start a batch on.</div>;
   const preset = ANIMALS[animal];
   return (
     <>
       <Field label="System"><select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>{devices.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.serial})</option>)}</select></Field>
       <Field label="Animal type">
-        <select value={animal} onChange={(e) => { setAnimal(e.target.value); setDuration(ANIMALS[e.target.value].durationDays); }}>
+        <select value={animal} onChange={(e) => { setAnimal(e.target.value); setDuration(String(ANIMALS[e.target.value].durationDays)); }}>
           {Object.values(ANIMALS).map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
         </select>
       </Field>
       <div className="grid cols-3" style={{ gap: 10 }}>
-        <Field label="Duration (days)"><input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} /></Field>
-        <Field label="Animals"><input type="number" value={count} onChange={(e) => setCount(Number(e.target.value))} /></Field>
+        <Field label="Duration (days)"><input type="number" min={1} value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>
+        <Field label="Animals"><input type="number" min={1} value={count} onChange={(e) => setCount(e.target.value)} /></Field>
         <Field label="Start date"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
       </div>
       <p className="muted small">Recommended: {preset.baseMin}–{preset.baseMax}°C for {preset.durationDays} days. Targets auto-adjust with age.</p>
       <div className="btn-row">
-        <Btn variant="green" onClick={() => {
-          dispatch({ type: 'START_BATCH', deviceId, animal, durationDays: duration, count, startDate: new Date(`${start}T06:00:00`).toISOString() });
+        <Btn variant="green" disabled={!formValid} onClick={() => {
+          dispatch({ type: 'START_BATCH', deviceId, animal, durationDays: durNum, count: cntNum, startDate: new Date(`${start}T06:00:00`).toISOString() });
           dispatch({ type: 'TOAST', msg: 'Batch started.' });
           onDone();
         }}>Start batch</Btn>

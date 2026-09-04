@@ -7,7 +7,7 @@ import { LANGS, t } from '../../i18n/strings.js';
 export default function AdminSettings() {
   const { state, dispatch } = useStore();
   const lang = state.lang || 'en';
-  const [safetyFloor, setSafetyFloor] = useState(20);
+  const [safetyFloor, setSafetyFloor] = useState('20');
   const [confirmReset, setConfirmReset] = useState(false);
 
   return (
@@ -16,7 +16,7 @@ export default function AdminSettings() {
       <div className="grid cols-2" style={{ marginTop: 14 }}>
         <Card title="Platform">
           <Field label="Safety floor temperature (°C)">
-            <input type="number" value={safetyFloor} onChange={(e) => setSafetyFloor(Number(e.target.value))} />
+            <input type="number" min={10} max={40} value={safetyFloor} onChange={(e) => setSafetyFloor(e.target.value)} />
           </Field>
           <p className="muted small">Below this temperature a locked device may still run the heater (failsafe) — subscription enforcement never creates an unsafe condition.</p>
           <div className="row-between">
