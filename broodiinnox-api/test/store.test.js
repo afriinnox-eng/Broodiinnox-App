@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MemoryStore } from '../lib/store.js';
+import { MemoryStore, rowFromState } from '../lib/store.js';
 
 const ID = 'BROODIINNOX-002';
 
@@ -137,4 +137,36 @@ test('listDevices is deterministic and empty-safe', async () => {
   await s.registerDevice({ device_id: 'A' });
   const ids = (await s.listDevices()).map((d) => d.device_id);
   assert.deepEqual(ids, ['A', 'B']);
+});
+
+test('rowFromState emits only columns that exist in the device_state schema', () => {
+  // Regression: STATE_COLUMNS once mapped deviceTs -> device_ts, but the
+  // device_state table has no device_ts column, so every Postgres
+  // upsertState() INSERT threw and live device state never persisted.
+  const row = rowFromState({
+    deviceId: 'BROODIINNOX-001',
+    online: true,
+    lastSeenAt: 1754300000000,
+    relayOn: true,
+    manual: false,
+    day: 3,
+    totalDays: 30,
+    maxTemp: 36,
+    minTemp: 32,
+    aveTemp: 27.6,
+    temp1: 27.6,
+    s1Enabled: true,
+    failsafeMode: false,
+    sensorError: false,
+    mismatchError: false,
+    locked: false,
+    signal: 25,
+    deviceTs: 1754300001, // must NOT leak into the persisted row
+    error: null,
+  });
+  assert.equal(row.device_id, 'BROODIINNOX-001');
+  assert.equal('device_ts' in row, false, 'device_ts must not be written (no such column)');
+  assert.ok(row.last_seen_at instanceof Date, 'last_seen_at converted to a Date for timestamptz');
+  assert.equal(row.ave_temp, 27.6);
+  assert.equal(row.device_locked, false);
 });

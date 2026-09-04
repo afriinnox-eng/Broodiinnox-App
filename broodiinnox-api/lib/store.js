@@ -99,7 +99,11 @@ const STATE_COLUMNS = {
   aveTemp: 'ave_temp', temp1: 'temp1', temp2: 'temp2', temp3: 'temp3', temp4: 'temp4',
   s1Enabled: 's1_enabled', s2Enabled: 's2_enabled', s3Enabled: 's3_enabled', s4Enabled: 's4_enabled',
   failsafeMode: 'failsafe_mode', sensorError: 'sensor_error', mismatchError: 'mismatch_error',
-  locked: 'device_locked', signal: 'signal_quality', error: 'error', deviceTs: 'device_ts',
+  locked: 'device_locked', signal: 'signal_quality', error: 'error',
+  // NOTE: deviceTs is intentionally NOT mapped — the device_state table has no
+  // device_ts column, so persisting it made every upsertState() INSERT throw
+  // ("column device_ts does not exist") and live device state was never
+  // written to CockroachDB. device_ts lives in the readings table instead.
 };
 
 const MEMORY_READINGS_CAP = 1000; // per device, memory mode only
