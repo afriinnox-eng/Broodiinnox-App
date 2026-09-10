@@ -189,9 +189,13 @@ export function overlayLiveDevice(device, vm, nowIso) {
   const userBatch = device.batch && device.batch.synth !== true;
   const endedBatch = device.batch && device.batch.status === 'ended';
   const keepBatch = userBatch || endedBatch;
-  // Same rule for the master switch: once the operator has commanded a state,
-  // the poll must not flip it back before the device has applied the command.
-  const keepPower = device.powerSetByUser === true;
+  // Master switch: the operator's command is shown while it stands, but the
+  // UNIT's own report decides whether it has landed. Nothing is frozen — an
+  // unconfirmed command stays visible (and is retried, see
+  // powerReassertPlan) and a confirmed one is read back from the hardware.
+  const intent = device.powerIntent === 'on' || device.powerIntent === 'off' ? device.powerIntent : null;
+  const confirmed = !intent || powerMatchesIntent(intent, vm);
+  const stale = !!intent && !confirmed && powerIsStale(device, nowIso);
   return {
     ...device,
     ...live,
@@ -205,10 +209,83 @@ export function overlayLiveDevice(device, vm, nowIso) {
     subscription: keepSub,
     batch: keepBatch ? device.batch : live.batch,
     manualLock: !!vm.locked,
-    systemOn: keepPower ? device.systemOn !== false : live.systemOn,
-    powerSetByUser: keepPower,
+    systemOn: intent ? intent === 'on' : live.systemOn,
+    powerIntent: intent,
+    powerSetByUser: !!intent,
+    powerPending: !!intent && !confirmed && !stale,
+    powerUnconfirmed: stale,
+    powerConfirmed: !!intent && confirmed,
+    powerRetries: device.powerRetries || 0,
+    powerRetryAt: device.powerRetryAt || null,
     live: true,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* System power: what the unit reports vs what was commanded           */
+/* ------------------------------------------------------------------ */
+
+/** How long a command may go unconfirmed before it counts as drift. */
+export const POWER_CONFIRM_GRACE_MS = 20000;
+/** Cadence of the re-send attempts made while a command has not landed. */
+export const POWER_REASSERT_INTERVAL_MS = 30000;
+/** Give up after this many re-sends and tell the operator instead. */
+export const POWER_MAX_REASSERTS = 5;
+/** A unit unseen for this long gets no commands (matches the API liveness). */
+const POWER_ONLINE_WINDOW_MS = 120000;
+
+/**
+ * Does the unit report the state a power command asked for?
+ *
+ * The firmware has no power-down topic, so the switch drives the relay:
+ * OFF => `relay OFF` (manual, heater forced off) and ON => `relay AUTO`
+ * (thermostat control). `manual_control` is therefore the hardware's own
+ * confirmation that the command was applied.
+ */
+export function powerMatchesIntent(intent, vm) {
+  if (intent !== 'on' && intent !== 'off') return true;
+  const manual = vm?.manual === true;
+  const heaterOn = vm?.heaterOn === true;
+  if (intent === 'off') return manual && !heaterOn;
+  return !manual;
+}
+
+/** Has a commanded state been unconfirmed long enough to count as drift? */
+export function powerIsStale(device, nowIso, graceMs = POWER_CONFIRM_GRACE_MS) {
+  const at = Date.parse(device?.powerIntentAt || '') || 0;
+  if (!at) return false;
+  const now = Date.parse(nowIso || '') || Date.now();
+  return now - at >= graceMs;
+}
+
+/**
+ * Should the app re-send a power command the unit is not showing?
+ *
+ * This is what makes OFF stick: `manual_relay_control` lives in RAM only, so a
+ * reboot, a power cut or a failsafe recovery silently puts the unit back under
+ * thermostat control — heating resumes even though the farmer switched the
+ * system off. Re-sends are throttled and capped, and never sent to a locked or
+ * silent device (the firmware drops relay commands while LOCKED).
+ */
+export function powerReassertPlan(device, vm, nowIso, opts = {}) {
+  const {
+    graceMs = POWER_CONFIRM_GRACE_MS,
+    intervalMs = POWER_REASSERT_INTERVAL_MS,
+    maxRetries = POWER_MAX_REASSERTS,
+  } = opts;
+  if (!device || device.live !== true) return null;
+  const intent = device.powerIntent;
+  if (intent !== 'on' && intent !== 'off') return null;
+  if (device.manualLock) return null;
+  if (powerMatchesIntent(intent, vm)) return null;
+  if (!powerIsStale(device, nowIso, graceMs)) return null;
+  const now = Date.parse(nowIso || '') || Date.now();
+  const last = Date.parse(device.powerRetryAt || device.powerIntentAt || '') || now;
+  if (now - last < intervalMs) return null;
+  if ((device.powerRetries || 0) >= maxRetries) return null;
+  const seen = Date.parse(device.lastSeen || '') || 0;
+  if (!seen || now - seen > POWER_ONLINE_WINDOW_MS) return null;
+  return { command: 'relay', value: intent === 'on' ? 'AUTO' : 'OFF' };
 }
 
 /**

@@ -5,7 +5,7 @@ import {
   apiDeviceToVm, createIotApi,
 } from './iot.js';
 import {
-  liveCommandPlan, liveConfig, overlayLiveDevice, storeDeviceFromVm,
+  liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
@@ -66,8 +66,10 @@ function reducer(state, action) {
       // The firmware has no "power down the ESP32" topic — a unit that is off
       // cannot be switched back on remotely — so the switch drives the relay:
       // ON resumes automatic heating, OFF forces the heater off while the unit
-      // keeps reporting. `powerSetByUser` protects the commanded state from
-      // being overwritten by the live poll's inferred one.
+      // keeps reporting. `powerIntent` records what was commanded; the unit's
+      // own `manual_control` report is what confirms it (and re-sends it if a
+      // reboot drops it), so the switch can never claim a state the hardware
+      // is not in.
       const { deviceId, on } = action;
       const dev = state.devices.find((d) => d.id === deviceId);
       if (!dev) return state;
@@ -81,6 +83,13 @@ function reducer(state, action) {
               systemOn: powerOn,
               powerSetByUser: true,
               powerSetAt: nowIso(),
+              powerIntent: powerOn ? 'on' : 'off',
+              powerIntentAt: nowIso(),
+              powerPending: !!d.live,
+              powerUnconfirmed: false,
+              powerError: null,
+              powerRetries: 0,
+              powerRetryAt: null,
               // A switched-off system must not show as heating. Real (live)
               // devices keep reporting their own relay state instead.
               heaterOn: d.live ? d.heaterOn : (powerOn ? d.heaterOn : false),
@@ -97,6 +106,53 @@ function reducer(state, action) {
         }
       );
     }
+
+    // The API answered a power command: 2xx means "published to the unit",
+    // 4xx/5xx means the unit never got it. Only the hardware report confirms.
+    case 'POWER_COMMAND_RESULT': {
+      const { deviceId, ok, error } = action;
+      const dev = state.devices.find((d) => d.id === deviceId);
+      if (!dev) return state;
+      if (ok) {
+        return {
+          ...state,
+          devices: state.devices.map((d) => (d.id === deviceId ? { ...d, powerAckAt: nowIso() } : d)),
+        };
+      }
+      // Refused or not published (device LOCKED, bridge down…): drop the
+      // command so the switch shows the unit's real state again, and say why
+      // instead of leaving a switch that silently does nothing.
+      return {
+        ...state,
+        devices: state.devices.map((d) => (d.id === deviceId
+          ? {
+            ...d,
+            powerIntent: null,
+            powerSetByUser: false,
+            powerPending: false,
+            powerUnconfirmed: false,
+            powerRetries: 0,
+            powerRetryAt: null,
+            powerError: error || 'The unit did not accept the command.',
+            systemOn: !(d.manual === true && d.heaterOn === false),
+          }
+          : d)),
+        toast: {
+          msg: `Could not switch ${dev.name || deviceId}: ${error || 'the unit did not accept the command'}`,
+          kind: 'error',
+          at: Date.now(),
+        },
+      };
+    }
+
+    // A re-send of an unconfirmed power command was issued (rate limiting).
+    case 'POWER_REASSERT_SENT':
+      return {
+        ...state,
+        devices: state.devices.map((d) => (d.id === action.deviceId
+          ? { ...d, powerRetries: (d.powerRetries || 0) + 1, powerRetryAt: action.at }
+          : d)),
+      };
 
     case 'START_BATCH': {
       const { deviceId, animal, startDate, durationDays, count } = action;
@@ -513,11 +569,30 @@ export function StoreProvider({ children }) {
       try {
         const data = await api.listDevices();
         if (cancelled) return;
-        dispatch({
-          type: 'LIVE_SYNC',
-          devices: (data?.devices || []).map(apiDeviceToVm).filter(Boolean),
-          at: new Date().toISOString(),
-        });
+        const vms = (data?.devices || []).map(apiDeviceToVm).filter(Boolean);
+        const at = new Date().toISOString();
+        dispatch({ type: 'LIVE_SYNC', devices: vms, at });
+
+        // Keep a switched-off system off. The firmware holds manual mode in RAM
+        // only, so a reboot, a power cut or a failsafe recovery drops it and the
+        // heater resumes by itself — the farmer's OFF would silently evaporate.
+        // Re-send it (throttled and capped) until the unit reports it again.
+        try {
+          const byId = new Map(vms.map((v) => [v.id, v]));
+          for (const dev of stateRef.current.devices) {
+            const plan = powerReassertPlan(dev, byId.get(dev.id), at);
+            if (!plan) continue;
+            try {
+              await api.sendCommand(dev.id, plan.command, plan.value);
+            } catch {
+              /* the next poll tries again, capped by POWER_MAX_REASSERTS */
+            }
+            if (cancelled) return;
+            dispatch({ type: 'POWER_REASSERT_SENT', deviceId: dev.id, at });
+          }
+        } catch {
+          /* never let the re-send break the poll */
+        }
       } catch {
         /* keep the last good overlay; Admin Live surfaces connectivity */
       }
@@ -570,6 +645,24 @@ export function StoreProvider({ children }) {
       return;
     }
     const dev = action?.deviceId ? st.devices.find((d) => d.id === action.deviceId) : null;
+
+    // The master switch is the one control the operator must be able to trust:
+    // report a refusal (locked device, bridge down) instead of leaving a switch
+    // that silently does nothing.
+    if (action?.type === 'SET_SYSTEM_POWER') {
+      for (const c of liveCommandPlan(action, dev)) {
+        api.sendCommand(action.deviceId, c.command, c.value)
+          .then(() => dispatch({ type: 'POWER_COMMAND_RESULT', deviceId: action.deviceId, ok: true }))
+          .catch((err) => dispatch({
+            type: 'POWER_COMMAND_RESULT',
+            deviceId: action.deviceId,
+            ok: false,
+            error: err?.message,
+          }));
+      }
+      return;
+    }
+
     const plan = liveCommandPlan(action, dev);
     for (const c of plan) {
       api.sendCommand(action.deviceId, c.command, c.value).catch(toastErr);

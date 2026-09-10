@@ -194,6 +194,12 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
 /* ===== forms ===== */
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+
+/* Power switch status line: warn while a command is still unconfirmed, red when
+   the unit never confirmed it. */
+.power-switch-status { line-height: 1.35; }
+.power-switch-status.pending { color: var(--warn); }
+.power-switch-status.bad { color: var(--crit); }
 .field label { font-size: 12px; font-weight: 700; color: var(--text-muted); }
 .field input, .field select, .field textarea {
   padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);

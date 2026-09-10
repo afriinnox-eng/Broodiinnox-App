@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 const DEVICE_ROW = {
   device_id: 'BROODIINNOX-001',
@@ -411,4 +411,139 @@ it('forwards the system ON/OFF switch as a relay command and keeps the chosen st
   expect(on).toBeTruthy();
   expect(on.body).toEqual({ command: 'relay', value: 'AUTO' });
   expect(out.getByText('live:on')).toBeTruthy();
+});
+
+describe('system power switch against the unit', () => {
+  let PowerSwitch;
+  /** Every control command the app sent, in order. */
+  const sent = () => calls.filter((c) => c.method === 'POST' && c.path.includes('/commands')).map((c) => c.body);
+
+  function PowerHarness() {
+    const { state } = useStore();
+    const d = state.devices.find((x) => x.id === 'BROODIINNOX-001');
+    if (!d) return <div>pending</div>;
+    return (
+      <div>
+        <PowerSwitch device={d} lang="en" showHint />
+        <span data-testid="power-state">
+          {JSON.stringify({
+            on: d.systemOn,
+            intent: d.powerIntent ?? null,
+            pending: !!d.powerPending,
+            unconfirmed: !!d.powerUnconfirmed,
+            error: d.powerError ?? null,
+            toast: state.toast ? state.toast.msg : null,
+            toastKind: state.toast ? state.toast.kind : null,
+          })}
+        </span>
+      </div>
+    );
+  }
+
+  const powerState = (out) => JSON.parse(out.getByTestId('power-state').textContent);
+  const switchEl = (out) => out.container.querySelector('[role="switch"]');
+
+  /** Flip the switch off and confirm the danger dialog. */
+  async function switchOff(out) {
+    await act(async () => { fireEvent.click(switchEl(out)); });
+    await act(async () => { fireEvent.click(screen.getByText('Yes, switch off')); });
+  }
+
+  beforeEach(async () => {
+    PowerSwitch = (await import('../components/PowerSwitch.jsx')).PowerSwitch;
+    // The unit's baseline: automatic control, heater running.
+    DEVICE_ROW.manual_control = false;
+    DEVICE_ROW.relay_state = true;
+    DEVICE_ROW.device_locked = false;
+    DEVICE_ROW.last_seen_at = new Date().toISOString();
+  });
+
+  afterEach(() => {
+    DEVICE_ROW.manual_control = false;
+    DEVICE_ROW.relay_state = true;
+    DEVICE_ROW.device_locked = false;
+  });
+
+  it('reads the unit back: OFF counts as done only once the hardware reports it', async () => {
+    localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
+    const out = render(<StoreProvider><PowerHarness /></StoreProvider>);
+    await flushPoll();
+
+    expect(switchEl(out).getAttribute('aria-checked')).toBe('true');
+    expect(out.getByText(/Unit confirms: automatic/)).toBeTruthy();
+
+    // The firmware applies `relay OFF` and reports manual control, heater off.
+    DEVICE_ROW.manual_control = true;
+    DEVICE_ROW.relay_state = false;
+    await switchOff(out);
+    await flushPoll();
+
+    expect(sent().some((b) => b.command === 'relay' && b.value === 'OFF')).toBe(true);
+    expect(switchEl(out).getAttribute('aria-checked')).toBe('false');
+    expect(out.getByText(/Unit confirms: heating stopped/)).toBeTruthy();
+    expect(powerState(out)).toMatchObject({ on: false, intent: 'off', pending: false, unconfirmed: false });
+  });
+
+  it('does not claim a command the unit never applied, and never freezes it', async () => {
+    localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
+    const out = render(<StoreProvider><PowerHarness /></StoreProvider>);
+    await flushPoll();
+
+    // The unit does NOT apply it: manual_control stays false.
+    await switchOff(out);
+    await flushPoll();
+    expect(powerState(out)).toMatchObject({ on: false, intent: 'off', pending: true, unconfirmed: false });
+    expect(out.getByText(/waiting for it to confirm/)).toBeTruthy();
+
+    // Past the grace window it is drift, not a confirmed state.
+    await act(async () => { await vi.advanceTimersByTimeAsync(25000); });
+    expect(powerState(out)).toMatchObject({ on: false, intent: 'off', pending: false, unconfirmed: true });
+  });
+
+  it('re-sends an OFF the unit dropped, so a reboot cannot silently restart heating', async () => {
+    localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
+    const out = render(<StoreProvider><PowerHarness /></StoreProvider>);
+    await flushPoll();
+    await switchOff(out);
+    await flushPoll();
+
+    const first = sent().filter((b) => b.value === 'OFF').length;
+    expect(first).toBe(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    const after = sent().filter((b) => b.value === 'OFF').length;
+    expect(after).toBeGreaterThan(first);
+  });
+
+  it('reverts the switch and says why when the unit refuses the command', async () => {
+    const original = globalThis.fetch.getMockImplementation();
+    globalThis.fetch.mockImplementation(async (url, opts = {}) => {
+      if ((opts.method || 'GET').toUpperCase() === 'POST' && String(url).includes('/commands')) {
+        calls.push({ method: 'POST', path: String(url), body: JSON.parse(opts.body) });
+        return jsonResponse({ error: 'Device BROODIINNOX-001 is LOCKED — relay is refused by the firmware until unlocked' }, 423);
+      }
+      return original(url, opts);
+    });
+
+    localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
+    const out = render(<StoreProvider><PowerHarness /></StoreProvider>);
+    await flushPoll();
+    await switchOff(out);
+    // Let the refusal land, without advancing past the toast's own lifetime.
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+    const st = powerState(out);
+    expect(st.error).toMatch(/LOCKED/);
+    expect(String(st.toast)).toContain('Could not switch');
+    // Back to what the hardware actually reports, so the switch is never a lie.
+    expect(switchEl(out).getAttribute('aria-checked')).toBe('true');
+    expect(st.on).toBe(true);
+    expect(st.intent).toBeNull();
+
+    // And no phantom retries of a command the unit refused.
+    await flushPoll();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(powerState(out).intent).toBeNull();
+    expect(sent().filter((b) => b.value === 'OFF').length).toBe(1);
+  });
 });

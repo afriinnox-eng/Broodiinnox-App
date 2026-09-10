@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  deviceDisplayName, liveCommandPlan, liveVmStatus, nearestAnimal, overlayLiveDevice, storeDeviceFromVm,
+  POWER_MAX_REASSERTS, deviceDisplayName, liveCommandPlan, liveVmStatus, nearestAnimal,
+  overlayLiveDevice, powerIsStale, powerMatchesIntent, powerReassertPlan, storeDeviceFromVm,
 } from '../lib/live.js';
 
 function vm(patch = {}) {
@@ -200,11 +201,18 @@ describe('overlayLiveDevice', () => {
   });
 
   it('keeps a switch command the operator just made, and infers it otherwise', () => {
-    // The user switched this unit OFF a moment ago: the poll must not flip the
-    // switch back on before the device has applied the relay command.
-    const commanded = overlayLiveDevice(seedDevice({ systemOn: false, powerSetByUser: true }), liveVm(), NOW);
+    // The user switched this unit OFF a moment ago: the app keeps showing that
+    // command — and says whether the unit has confirmed it — but nothing is
+    // frozen, so the switch can never disagree with the hardware for long.
+    const commanded = overlayLiveDevice(
+      seedDevice({ systemOn: false, powerIntent: 'off', powerIntentAt: NOW }),
+      liveVm(),
+      NOW
+    );
     expect(commanded.systemOn).toBe(false);
     expect(commanded.powerSetByUser).toBe(true);
+    expect(commanded.powerConfirmed).toBe(false); // the unit has not applied it yet
+    expect(commanded.powerPending).toBe(true);
 
     // Nobody commanded anything: the device's own relay state is the truth.
     expect(overlayLiveDevice(seedDevice(), liveVm({ manual: true, heaterOn: false }), NOW).systemOn).toBe(false);
@@ -285,5 +293,92 @@ describe('liveCommandPlan', () => {
     expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: true }, live()))
       .toEqual([{ command: 'relay', value: 'AUTO' }]);
     expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'brood-1', on: false }, mock)).toEqual([]);
+  });
+});
+
+describe('system power: the unit decides whether the command landed', () => {
+  const liveDevice = (patch = {}) => ({
+    id: 'BROODIINNOX-001',
+    live: true,
+    name: 'Main Farm Unit',
+    baseMin: 24,
+    baseMax: 31,
+    sensors: [],
+    lastSeen: now(),
+    subscription: { planId: 'p1', status: 'active', endDate: '2027-01-01T00:00:00.000Z' },
+    manualLock: false,
+    ...patch,
+  });
+  const T0 = Date.parse('2026-09-10T12:00:00.000Z');
+  const at = (ms) => new Date(T0 + ms).toISOString();
+  const dropped = vm({ manual: false, heaterOn: true }); // unit back in AUTO, heating
+  const applied = vm({ manual: true, heaterOn: false }); // unit reports manual off
+
+  it('confirms OFF only on manual control with the heater off, and ON on automatic', () => {
+    expect(powerMatchesIntent('off', applied)).toBe(true);
+    expect(powerMatchesIntent('off', vm({ manual: false, heaterOn: false }))).toBe(false);
+    expect(powerMatchesIntent('off', vm({ manual: true, heaterOn: true }))).toBe(false);
+    expect(powerMatchesIntent('on', vm({ manual: false, heaterOn: true }))).toBe(true);
+    expect(powerMatchesIntent('on', applied)).toBe(false);
+    expect(powerMatchesIntent(null, dropped)).toBe(true); // nothing was commanded
+  });
+
+  it('shows the command while it stands, and reads the unit back once it lands', () => {
+    const dev = liveDevice({ powerIntent: 'off', powerIntentAt: at(0) });
+    const landed = overlayLiveDevice(dev, applied, at(3000));
+    expect(landed.systemOn).toBe(false);
+    expect(landed.powerConfirmed).toBe(true);
+    expect(landed.powerPending).toBe(false);
+    expect(landed.powerUnconfirmed).toBe(false);
+
+    // Same id, no command: the unit's own report decides.
+    expect(overlayLiveDevice(liveDevice(), dropped, at(0)).systemOn).toBe(true);
+  });
+
+  it('never freezes a command: unconfirmed inside the window, drift after it', () => {
+    const dev = liveDevice({ powerIntent: 'off', powerIntentAt: at(0) });
+    const within = overlayLiveDevice(dev, dropped, at(5000));
+    expect(within.systemOn).toBe(false); // the farmer's OFF is still shown
+    expect(within.powerPending).toBe(true);
+    expect(within.powerUnconfirmed).toBe(false);
+
+    const after = overlayLiveDevice(dev, dropped, at(25000));
+    expect(after.powerPending).toBe(false);
+    expect(after.powerUnconfirmed).toBe(true);
+    expect(powerIsStale(dev, at(25000))).toBe(true);
+    expect(powerIsStale(dev, at(5000))).toBe(false);
+    expect(powerIsStale(liveDevice(), at(0))).toBe(false); // nothing commanded
+  });
+
+  it('re-sends a dropped OFF, throttled to one attempt per interval and capped', () => {
+    const dev = liveDevice({ powerIntent: 'off', powerIntentAt: at(0) });
+    expect(powerReassertPlan(dev, dropped, at(25000))).toBeNull(); // inside the grace window
+    expect(powerReassertPlan(dev, dropped, at(35000))).toEqual({ command: 'relay', value: 'OFF' });
+    expect(powerReassertPlan(dev, applied, at(35000))).toBeNull(); // unit already agrees
+
+    const sent = liveDevice({ powerIntent: 'off', powerIntentAt: at(0), powerRetries: 1, powerRetryAt: at(35000) });
+    expect(powerReassertPlan(sent, dropped, at(45000))).toBeNull(); // too soon after the last attempt
+    expect(powerReassertPlan(sent, dropped, at(70000))).toEqual({ command: 'relay', value: 'OFF' });
+
+    const exhausted = liveDevice({
+      powerIntent: 'off', powerIntentAt: at(0), powerRetries: POWER_MAX_REASSERTS, powerRetryAt: at(0),
+    });
+    expect(powerReassertPlan(exhausted, dropped, at(600000))).toBeNull();
+  });
+
+  it('re-sends ON as AUTO, and never talks to a locked, silent or mock device', () => {
+    const on = liveDevice({ powerIntent: 'on', powerIntentAt: at(0) });
+    expect(powerReassertPlan(on, applied, at(35000))).toEqual({ command: 'relay', value: 'AUTO' });
+
+    const locked = liveDevice({ powerIntent: 'off', powerIntentAt: at(0), manualLock: true });
+    expect(powerReassertPlan(locked, dropped, at(35000))).toBeNull();
+
+    const silent = liveDevice({ powerIntent: 'off', powerIntentAt: at(0), lastSeen: at(-600000) });
+    expect(powerReassertPlan(silent, dropped, at(35000))).toBeNull();
+
+    const mockDevice = liveDevice({ live: false, powerIntent: 'off', powerIntentAt: at(0) });
+    expect(powerReassertPlan(mockDevice, dropped, at(35000))).toBeNull();
+
+    expect(powerReassertPlan(liveDevice({ powerIntentAt: at(0) }), dropped, at(35000))).toBeNull();
   });
 });
