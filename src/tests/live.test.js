@@ -149,6 +149,12 @@ describe('storeDeviceFromVm', () => {
     expect(d.baseMin).toBe(10);
     expect(d.baseMax).toBe(50);
   });
+
+  it('reads the master ON/OFF switch out of the reported relay state', () => {
+    expect(storeDeviceFromVm(liveVm(), NOW).systemOn).toBe(true);            // relay follows the thermostat
+    expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: true }), NOW).systemOn).toBe(true);   // forced heating
+    expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: false }), NOW).systemOn).toBe(false); // switched OFF
+  });
 });
 
 describe('overlayLiveDevice', () => {
@@ -191,6 +197,18 @@ describe('overlayLiveDevice', () => {
     expect(b.farmerId).toBe(a.farmerId);
     expect(b.subscription.planId).toBe(a.subscription.planId);
     expect(b.sensors).toEqual(a.sensors);
+  });
+
+  it('keeps a switch command the operator just made, and infers it otherwise', () => {
+    // The user switched this unit OFF a moment ago: the poll must not flip the
+    // switch back on before the device has applied the relay command.
+    const commanded = overlayLiveDevice(seedDevice({ systemOn: false, powerSetByUser: true }), liveVm(), NOW);
+    expect(commanded.systemOn).toBe(false);
+    expect(commanded.powerSetByUser).toBe(true);
+
+    // Nobody commanded anything: the device's own relay state is the truth.
+    expect(overlayLiveDevice(seedDevice(), liveVm({ manual: true, heaterOn: false }), NOW).systemOn).toBe(false);
+    expect(overlayLiveDevice(seedDevice(), liveVm(), NOW).systemOn).toBe(true);
   });
 });
 
@@ -259,5 +277,13 @@ describe('liveCommandPlan', () => {
       .toEqual([{ command: 'set_time', value: 'now' }]);
     expect(liveCommandPlan({ type: 'RESTART_DEVICE', deviceId: 'BROODIINNOX-001' }, live()))
       .toEqual([{ command: 'restart', value: 'RESTART' }]);
+  });
+
+  it('maps the master switch onto the firmware relay topic, and nothing for mock devices', () => {
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false }, live()))
+      .toEqual([{ command: 'relay', value: 'OFF' }]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: true }, live()))
+      .toEqual([{ command: 'relay', value: 'AUTO' }]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'brood-1', on: false }, mock)).toEqual([]);
   });
 });

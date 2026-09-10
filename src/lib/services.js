@@ -131,11 +131,14 @@ export function generateAlerts(device, nowIso) {
   const { min, max } = stepDownTargets(device.baseMin, device.baseMax, device.batchDay);
   const locked = deviceLocked(device, nowIso);
   const sub = device.subscription;
+  // A system the user switched off is not holding a target band: its drifting
+  // temperature is the expected result of that command, not a new alarm.
+  const switchedOff = device.systemOn === false;
 
-  if (avg !== null && avg > max) {
+  if (!switchedOff && avg !== null && avg > max) {
     out.push({ key: ALERT_KEYS.TEMP_HIGH, severity: SEVERITY.WARNING, message: `Temperature ${avg.toFixed(1)}°C is above the ${max}°C target.` });
   }
-  if (avg !== null && avg < min) {
+  if (!switchedOff && avg !== null && avg < min) {
     out.push({ key: ALERT_KEYS.TEMP_LOW, severity: SEVERITY.WARNING, message: `Temperature ${avg.toFixed(1)}°C is below the ${min}°C target.` });
   }
   if (allSensorsFailed(device.sensors)) {

@@ -5,6 +5,7 @@ import { avgTemp, batchDay, batchRemaining, deviceLocked, deviceStatus, stepDown
 import { ANIMALS } from '../lib/presets.js';
 import { fmtDate, timeAgo } from '../lib/time.js';
 import { StatusBadge } from './ui.jsx';
+import { PowerSwitch } from './PowerSwitch.jsx';
 import { Icon } from './icons.jsx';
 
 export function SystemCard({ device, lang }) {
@@ -58,6 +59,11 @@ export function SystemCard({ device, lang }) {
             <div style={{ color: 'var(--crit)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="lock" size={13} /> Locked</div>
           )}
         </div>
+      </div>
+
+      {/* Master switch — stopPropagation so flipping it never opens the card. */}
+      <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+        <PowerSwitch device={device} lang={lang} />
       </div>
 
       <div className="row-between" style={{ marginTop: 12 }}>

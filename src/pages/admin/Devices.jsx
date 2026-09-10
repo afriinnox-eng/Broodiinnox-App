@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../lib/store.jsx';
 import { deviceStatus, avgTemp } from '../../lib/services.js';
 import { Badge, Btn, Card, DataTable, Field, Modal, StatusBadge } from '../../components/ui.jsx';
+import { PowerSwitch } from '../../components/PowerSwitch.jsx';
 import { fmtDate, timeAgo } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
 
@@ -53,6 +54,7 @@ export default function AdminDevices() {
           { key: 'temp', label: 'Avg temp', render: (r) => { const a = avgTemp(r.sensors); return a === null ? '—' : `${a.toFixed(1)}°C`; } },
           { key: 'status', label: 'Status', render: (r) => <StatusBadge status={deviceStatus(r, now)} /> },
           { key: 'lastSeen', label: 'Last seen', render: (r) => timeAgo(r.lastSeen, now) + ' ago' },
+          { key: 'power', label: 'System power', render: (r) => <PowerSwitch device={r} lang={lang} small showLabel={false} /> },
           { key: 'actions', label: '', render: (r) => <Btn small onClick={(e) => { e.stopPropagation(); navigate(`/admin/systems/${r.id}`); }}>Manage</Btn> },
         ]}
         rows={devices.map((d) => ({ ...d, _key: d.id }))}
@@ -96,6 +98,8 @@ function DeviceDetail({ device, farmerName, onClose, dispatch, plans, maintenanc
           {device.subscription?.endDate && <div className="muted small">ends {fmtDate(device.subscription.endDate)}</div>}
           <div className="muted small" style={{ marginTop: 8 }}>Maintenance</div>
           <div>{maint ? `next ${fmtDate(maint.nextMaintenance)}` : '—'}</div>
+          <div className="muted small" style={{ marginTop: 8 }}>System power</div>
+          <PowerSwitch device={device} lang={lang} showLabel={false} showHint />
           <div className="btn-row" style={{ marginTop: 12 }}>
             <Btn small variant="danger" onClick={() => { dispatch({ type: 'LOCK_DEVICE', deviceId: device.id, lock: !device.manualLock }); dispatch({ type: 'TOAST', msg: device.manualLock ? 'Device unlocked by admin.' : 'Device locked by admin.' }); }}>
               {device.manualLock ? 'Unlock' : 'Lock'}

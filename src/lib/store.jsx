@@ -61,6 +61,43 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_SYSTEM_POWER': {
+      // Master ON/OFF switch for one Broodiinnox system (farmer or supervisor).
+      // The firmware has no "power down the ESP32" topic — a unit that is off
+      // cannot be switched back on remotely — so the switch drives the relay:
+      // ON resumes automatic heating, OFF forces the heater off while the unit
+      // keeps reporting. `powerSetByUser` protects the commanded state from
+      // being overwritten by the live poll's inferred one.
+      const { deviceId, on } = action;
+      const dev = state.devices.find((d) => d.id === deviceId);
+      if (!dev) return state;
+      const powerOn = !!on;
+      return withAudit(
+        {
+          ...state,
+          devices: state.devices.map((d) => (d.id === deviceId
+            ? {
+              ...d,
+              systemOn: powerOn,
+              powerSetByUser: true,
+              powerSetAt: nowIso(),
+              // A switched-off system must not show as heating. Real (live)
+              // devices keep reporting their own relay state instead.
+              heaterOn: d.live ? d.heaterOn : (powerOn ? d.heaterOn : false),
+            }
+            : d)),
+        },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: powerOn ? 'system.on' : 'system.off',
+          details: `${deviceId} system switched ${powerOn ? 'ON (relay AUTO)' : 'OFF (relay OFF)'}`,
+          prev: { systemOn: dev.systemOn !== false },
+          next: { systemOn: powerOn },
+        }
+      );
+    }
+
     case 'START_BATCH': {
       const { deviceId, animal, startDate, durationDays, count } = action;
       const dev = state.devices.find((d) => d.id === deviceId);
@@ -359,7 +396,8 @@ function tick(state) {
       return { ...s, lastReading: Math.round(wander * 10) / 10 };
     });
     const avg = avgTemp(sensors);
-    const heaterOn = heaterDecision(avg, min, max, dev.heaterOn);
+    // A system the user switched off stays off in the simulation too.
+    const heaterOn = dev.systemOn === false ? false : heaterDecision(avg, min, max, dev.heaterOn);
     return { ...dev, sensors, heaterOn, lastSeen: now, day, targets: { min, max } };
   });
 

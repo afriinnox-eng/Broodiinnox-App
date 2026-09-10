@@ -9,6 +9,7 @@ import { ANIMALS } from '../../lib/presets.js';
 import { fmtDate, fmtDateTime, timeAgo } from '../../lib/time.js';
 import { LineChart } from '../../components/charts.jsx';
 import { Badge, Btn, Card, Field, Modal, Progress, SevDot, StatusBadge } from '../../components/ui.jsx';
+import { PowerSwitch } from '../../components/PowerSwitch.jsx';
 import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
 
@@ -168,6 +169,11 @@ export default function FarmerSystemDetail() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Card title="Remote control">
+            {/* Remote ON/OFF for the whole system — the first thing a farmer
+                reaches for when a cycle ends or something goes wrong. */}
+            <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
+              <PowerSwitch device={device} lang={lang} showHint />
+            </div>
             <div className="grid cols-2" style={{ gap: 10 }}>
               <Field label="Min temperature (°C)"><input type="number" min={10} max={49} step={1} value={minV} onChange={(e) => setMinV(e.target.value)} disabled={!canControl} /></Field>
               <Field label="Max temperature (°C)"><input type="number" min={11} max={50} step={1} value={maxV} onChange={(e) => setMaxV(e.target.value)} disabled={!canControl} /></Field>

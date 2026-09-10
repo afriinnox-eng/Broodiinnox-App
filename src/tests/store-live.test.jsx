@@ -370,3 +370,45 @@ it('START_BATCH on a live device survives the next LIVE_SYNC poll', async () => 
   expect(out.getByText('duck:running:400')).toBeTruthy();
   expect(out.queryByText('duck:running:0')).toBeNull(); // count not reset by synth
 });
+
+it('forwards the system ON/OFF switch as a relay command and keeps the chosen state', async () => {
+  let dispatch;
+  function P3() {
+    const { state, dispatch: d } = useStore();
+    dispatch = d;
+    const dev = state.devices.find((x) => x.id === 'BROODIINNOX-001');
+    return <div>{dev ? `${dev.live ? 'live' : 'mock'}:${dev.systemOn === false ? 'off' : 'on'}` : 'pending'}</div>;
+  }
+  localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
+  const out = render(
+    <StoreProvider><P3 /></StoreProvider>
+  );
+  await flushPoll();
+  expect(out.getByText('live:on')).toBeTruthy();
+
+  calls.length = 0;
+  await act(async () => {
+    dispatch({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const off = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
+  expect(off).toBeTruthy();
+  expect(off.body).toEqual({ command: 'relay', value: 'OFF' });
+
+  // The API row still says relay_state:true / manual_control:false (the device
+  // has not applied the command yet) — the switch must not flap back on.
+  await flushPoll();
+  expect(out.getByText('live:off')).toBeTruthy();
+
+  calls.length = 0;
+  await act(async () => {
+    dispatch({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: true });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const on = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
+  expect(on).toBeTruthy();
+  expect(on.body).toEqual({ command: 'relay', value: 'AUTO' });
+  expect(out.getByText('live:on')).toBeTruthy();
+});

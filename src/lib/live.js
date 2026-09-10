@@ -165,6 +165,9 @@ export function storeDeviceFromVm(vm, nowIso) {
     },
     manualLock: !!vm.locked,
     manualStatus: null,
+    // The firmware has no power topic: a unit in manual relay control with the
+    // relay off is a unit someone switched off. Everything else is running.
+    systemOn: !(vm.manual === true && vm.heaterOn === false),
     live: true,
   };
 }
@@ -186,6 +189,9 @@ export function overlayLiveDevice(device, vm, nowIso) {
   const userBatch = device.batch && device.batch.synth !== true;
   const endedBatch = device.batch && device.batch.status === 'ended';
   const keepBatch = userBatch || endedBatch;
+  // Same rule for the master switch: once the operator has commanded a state,
+  // the poll must not flip it back before the device has applied the command.
+  const keepPower = device.powerSetByUser === true;
   return {
     ...device,
     ...live,
@@ -199,6 +205,8 @@ export function overlayLiveDevice(device, vm, nowIso) {
     subscription: keepSub,
     batch: keepBatch ? device.batch : live.batch,
     manualLock: !!vm.locked,
+    systemOn: keepPower ? device.systemOn !== false : live.systemOn,
+    powerSetByUser: keepPower,
     live: true,
   };
 }
@@ -232,6 +240,12 @@ export function liveCommandPlan(action, device) {
       if (id < 1 || id > 4) return [];
       return [{ command: 'sensor', value: `DS${id}:${action.enabled ? 'ON' : 'OFF'}` }];
     }
+    case 'SET_SYSTEM_POWER':
+      // Master switch: ON hands control back to the thermostat (relay AUTO),
+      // OFF stops heating (relay OFF). Exactly the payloads the firmware's
+      // relay topic implements, and both are refused while the device is
+      // LOCKED — hence the switch is disabled for locked systems in the UI.
+      return [{ command: 'relay', value: action.on ? 'AUTO' : 'OFF' }];
     case 'LOCK_DEVICE':
       return [{ command: 'device_active', value: action.lock ? 'LOCKED' : 'ACTIVE' }];
     case 'SYNC_TIME':
