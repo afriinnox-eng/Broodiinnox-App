@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { subscriptionState } from '../../lib/services.js';
-import { BANDS, TERMS, bandForChicks, bandLabel, coverageFor, deviceBand, priceForPlan } from '../../lib/subscriptions.js';
+import { BANDS, TERMS, bandForChicks, bandLabel, coverageFor, deviceBand, priceForPlan, termById } from '../../lib/subscriptions.js';
 import { Badge, Btn, Card, DataTable, Field, Modal } from '../../components/ui.jsx';
 import { fmtDate } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
@@ -23,13 +23,13 @@ export default function AdminSubscriptions() {
   const farmers = Object.fromEntries(state.farmers.map((f) => [f.id, f.name]));
   const activeSubs = state.devices.filter((d) => d.subscription?.status === 'active' && subscriptionState(d.subscription.endDate, now) === 'active');
   const termOf = (id) => state.plans.find((p) => p.id === id) || TERMS.find((x) => x.id === id);
+  /** A plan is named the same way everywhere: "15-Day Plan", not "15-Day". */
+  const planLabel = (plan) => termById(plan.id)?.name || plan.name;
 
-  /** The published prices of one plan, from the cheapest farm to the largest. */
-  const priceRange = (plan) => {
-    const prices = BANDS.map((b) => priceForPlan(b, plan)).filter((p) => p !== null);
-    if (!prices.length) return '—';
-    return `${fmtMoney(Math.min(...prices))} – ${fmtMoney(Math.max(...prices))} · above 15,999 quoted individually`;
-  };
+  /** Every published price of one plan, cheapest farm size first. */
+  const planPrices = (plan) => BANDS
+    .map((band) => ({ band, price: priceForPlan(band, plan) }))
+    .filter((r) => r.price !== null);
 
   return (
     <div>
@@ -41,22 +41,35 @@ export default function AdminSubscriptions() {
         price sheet below — so no price is stored on the plan itself.
       </p>
       <div className="grid cols-3">
-        {state.plans.map((p) => (
-          <Card key={p.id} title={p.name}>
-            <div className="big" style={{ color: 'var(--brand-green)' }}>{p.durationDays} days</div>
-            <div className="muted small">{p.description}</div>
-            <div className="muted small" style={{ marginTop: 6 }}>{priceRange(p)}</div>
-            <div className="row" style={{ marginTop: 8 }}>
-              <Badge tone={p.active ? 'ok' : 'off'}>{p.active ? 'active' : 'inactive'}</Badge>
-            </div>
-            <div className="btn-row" style={{ marginTop: 10 }}>
-              <Btn small onClick={() => setEdit(p)}>Edit</Btn>
-              <Btn small onClick={() => { dispatch({ type: 'UPDATE_PLAN', id: p.id, patch: { active: !p.active } }); dispatch({ type: 'TOAST', msg: 'Plan updated.' }); }}>
-                {p.active ? 'Deactivate' : 'Activate'}
-              </Btn>
-            </div>
-          </Card>
-        ))}
+        {state.plans.map((p) => {
+          const rows = planPrices(p);
+          const cheapest = rows[0];
+          const dearest = rows[rows.length - 1];
+          return (
+            <Card key={p.id} title={planLabel(p)}>
+              <div className="big" style={{ color: 'var(--brand-green)' }}>
+                {cheapest ? fmtMoney(cheapest.price) : 'No price'}
+                {cheapest && dearest.price !== cheapest.price ? ` – ${fmtMoney(dearest.price)}` : ''}
+              </div>
+              <div className="muted small">{p.durationDays} days · {p.description}</div>
+              {cheapest && (
+                <div className="muted small" style={{ marginTop: 6 }}>
+                  {fmtMoney(cheapest.price)} for {bandLabel(cheapest.band)} — {fmtMoney(dearest.price)} for{' '}
+                  {bandLabel(dearest.band)}. Above 15,999 chicks quoted individually.
+                </div>
+              )}
+              <div className="row" style={{ marginTop: 8 }}>
+                <Badge tone={p.active ? 'ok' : 'off'}>{p.active ? 'active' : 'inactive'}</Badge>
+              </div>
+              <div className="btn-row" style={{ marginTop: 10 }}>
+                <Btn small onClick={() => setEdit(p)}>Edit</Btn>
+                <Btn small onClick={() => { dispatch({ type: 'UPDATE_PLAN', id: p.id, patch: { active: !p.active } }); dispatch({ type: 'TOAST', msg: 'Plan updated.' }); }}>
+                  {p.active ? 'Deactivate' : 'Activate'}
+                </Btn>
+              </div>
+            </Card>
+          );
+        })}
         <button className="btn" style={{ minHeight: 120, justifyContent: 'center' }} onClick={() => setCreate(true)}>+ Create plan</button>
       </div>
 
@@ -66,7 +79,7 @@ export default function AdminSubscriptions() {
           <thead>
             <tr>
               <th>Farm size</th>
-              {state.plans.map((p) => <th key={p.id}>{p.name}</th>)}
+              {state.plans.map((p) => <th key={p.id}>{planLabel(p)}</th>)}
             </tr>
           </thead>
           <tbody>

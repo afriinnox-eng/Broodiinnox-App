@@ -130,7 +130,9 @@ A device is registered **with its farm size** — the maximum number of chicks
 brooded at once — and that is what decides what every plan costs for it. The
 farmer's page therefore shows the plans priced for their own farm size first,
 and one button ("View all subscription plans") opens the whole published list so
-other sizes can be compared. The farm size is Afriinnox's to set, in the admin
+other sizes can be compared. A system whose farm size is not recorded yet cannot
+be priced at all, so its page opens that whole list by itself rather than hiding
+the plans behind a button. The farm size is Afriinnox's to set, in the admin
 console: a farmer must never be able to lower their own bill.
 
 A subscription is bought **per batch**. A plan pays for the batch running when

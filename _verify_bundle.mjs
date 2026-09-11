@@ -145,6 +145,29 @@ const otherAfter = await soon(() => /RWF 1,368,000/.test(doc.body.textContent));
 const customized = /Customized/.test(doc.body.textContent);
 console.log(`[bundle] after "View all subscription plans": every farm size shown=${otherAfter}, the customized top band labelled=${customized}`);
 if (!otherAfter) fail('the button did not reveal the other farm sizes');
+
+/* 9. all five plans, each with real RWF — on the page and in the payment modal */
+const FIVE = ['15-Day Plan', '30-Day Plan', '40-Day Plan', '6-Month Plan', '1-Year Plan']
+  .filter((n) => doc.body.textContent.includes(n));
+const rwfCount = () => (doc.body.textContent.match(/RWF [\d,]+/g) || []).length;
+console.log(`[bundle] plans named: ${FIVE.length}/5 (${FIVE.join(', ') || 'NONE'}) | RWF amounts on screen: ${rwfCount()}`);
+if (FIVE.length !== 5) fail(`only ${FIVE.length} of the 5 plans are listed`);
+if (rwfCount() < 100) fail('the price list does not show real RWF amounts');
+
+let options = [];
+click(await waitFor('a plan button on a system card', () => byText('button', /Renew \/ extend|Choose/)));
+// the select that offers PLANS (the page also carries the language switcher)
+await soon(() => {
+  options = [...doc.querySelectorAll('select')]
+    .map((s) => [...s.options])
+    .find((os) => os.some((o) => /15-Day Plan/.test(o.textContent))) || [];
+  return options.length === 5;
+});
+const priced = options.length === 5 && options.every((o) => /RWF [\d,]+/.test(o.textContent));
+console.log(`[bundle] payment modal: ${options.length} plans offered, each priced=${priced} — ${options.map((o) => o.textContent).join(' / ')}`);
+if (!priced) fail('the payment modal does not offer all five plans with real prices');
+const cancel = byText('button', /^Cancel$/);
+if (cancel) click(cancel);
 window.close();
 server.close();
 process.exit(0);

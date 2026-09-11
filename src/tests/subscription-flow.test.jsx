@@ -360,3 +360,80 @@ describe('FUNCTIONAL: the farmer sees their own farm size first, other sizes on 
     expect(out.queryByText('Plans for Up to 599 chicks')).toBeNull();
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* FUNCTIONAL: all five plans, with real RWF, wherever plans appear     */
+/* ------------------------------------------------------------------ */
+
+describe('FUNCTIONAL: every list of plans names all five and prices them in RWF', () => {
+  const ALL_FIVE = ['15-Day Plan', '30-Day Plan', '40-Day Plan', '6-Month Plan', '1-Year Plan'];
+
+  function renderPage(Component, path, session, mutate) {
+    seedWith(session, mutate);
+    return render(
+      <StoreProvider>
+        <Probe />
+        <MemoryRouter initialEntries={[path]}>
+          <Component />
+        </MemoryRouter>
+      </StoreProvider>
+    );
+  }
+
+  it("the farmer's plan table names all five plans and prices each one", async () => {
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const out = renderPage(FarmerSubscriptions, '/farmer/subscriptions', FARMER);
+
+    // BRD001 is registered in the 1,000–1,199 chicks band
+    for (const name of ALL_FIVE) expect(out.getAllByText(name).length, name).toBeGreaterThan(0);
+    for (const price of [33000, 52800, 59400, 165000, 264000]) {
+      expect(out.getAllByText(new RegExp(`RWF ${price.toLocaleString('en-US')}`)).length, `RWF ${price}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('the payment modal offers all five plans, each priced', async () => {
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const out = renderPage(FarmerSubscriptions, '/farmer/subscriptions', FARMER);
+
+    fireEvent.click(out.getAllByText('Renew / extend')[0]);
+    const options = [...document.querySelectorAll('select option')];
+    expect(options).toHaveLength(ALL_FIVE.length);
+    for (const name of ALL_FIVE) expect(options.some((o) => o.textContent.includes(name)), name).toBe(true);
+    expect(options.every((o) => /RWF [\d,]+/.test(o.textContent))).toBe(true);
+  });
+
+  it('a system with no farm size still shows every plan with real RWF, before pressing anything', async () => {
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const out = renderPage(FarmerSubscriptions, '/farmer/subscriptions', FARMER, (seed) => ({
+      ...seed,
+      devices: seed.devices.map((d) => (d.farmerId === 'f1' ? { ...d, farmSize: null, batch: null } : d)),
+    }));
+
+    expect(out.getAllByText(/No farm size is recorded for this system yet/).length).toBeGreaterThan(0);
+    for (const name of ALL_FIVE) expect(out.getAllByText(name).length, name).toBeGreaterThan(0);
+    // the whole published list is on screen already: 35 priced bands x 5 plans
+    expect((out.container.textContent.match(/RWF [\d,]+/g) || []).length).toBeGreaterThan(150);
+    expect(out.getByText('Hide other farm sizes')).toBeTruthy(); // and it can be closed again
+    fireEvent.click(out.getByText('Hide other farm sizes'));
+    expect(out.queryByText('Hide other farm sizes')).toBeNull();
+  });
+
+  it('the admin console shows all five plans, each with real money on the card', async () => {
+    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
+    const out = renderPage(AdminSubscriptions, '/admin/subscriptions', ADMIN);
+
+    // the console names a plan the way the farmer's page does: 15-Day Plan,
+    // 30-Day Plan, 40-Day Plan, 6-Month Plan, 1-Year Plan
+    for (const name of ALL_FIVE) expect(out.getAllByText(name).length, name).toBeGreaterThan(0);
+    // the cheapest and dearest farm size on the sheet, per plan, as money
+    expect(out.getByText('RWF 25,000 – RWF 247,000')).toBeTruthy();    // 15-Day
+    expect(out.getByText('RWF 40,000 – RWF 395,200')).toBeTruthy();    // 30-Day
+    expect(out.getByText('RWF 45,000 – RWF 444,600')).toBeTruthy();    // 40-Day
+    expect(out.getByText('RWF 125,000 – RWF 1,235,000')).toBeTruthy(); // 6-Month
+    expect(out.getByText('RWF 200,000 – RWF 1,976,000')).toBeTruthy(); // annual
+    expect(out.getByText(/RWF 25,000 for Up to 599 chicks/)).toBeTruthy();
+    // and the full price list behind them, every farm size against every plan
+    expect(out.getByText(/RWF 1,368,000/)).toBeTruthy();
+    expect(out.getByText(/RWF 347,200/)).toBeTruthy();
+  });
+});

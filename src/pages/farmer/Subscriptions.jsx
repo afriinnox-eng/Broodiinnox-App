@@ -26,7 +26,12 @@ export default function FarmerSubscriptions() {
   const now = new Date().toISOString();
   const myDevices = useMemo(() => state.devices.filter((d) => d.farmerId === state.session.id), [state.devices, state.session.id]);
   const [payFor, setPayFor] = useState(null); // { device, planId }
-  const [showAll, setShowAll] = useState(false);
+  // The published list is opened by itself when nothing on this page can be
+  // priced — a system with no farm size recorded yet still has to be able to
+  // show the farmer what every plan costs at every size.
+  const [showAllPref, setShowAllPref] = useState(null);
+  const noPricedSystem = myDevices.length > 0 && myDevices.every((d) => !deviceBand(d));
+  const showAll = showAllPref ?? noPricedSystem;
 
   const planOf = (id) => state.plans.find((p) => p.id === id) || TERMS.find((x) => x.id === id);
   const myBands = new Set(myDevices.map((d) => deviceBand(d)?.id).filter(Boolean));
@@ -181,13 +186,19 @@ export default function FarmerSubscriptions() {
                   </div>
                 </>
               ) : (
-                <div className="warn-banner" style={{ marginTop: 10 }}>
-                  <Icon name="alert" size={18} />
-                  <div>
-                    No farm size is recorded for this system yet, so no price can be quoted. Afriinnox records
-                    it at installation — the plans below the price list show what each size pays.
+                <>
+                  <div className="warn-banner" style={{ marginTop: 10 }}>
+                    <Icon name="alert" size={18} />
+                    <div>
+                      No farm size is recorded for this system yet, so its own prices cannot be shown.
+                      Afriinnox records it at installation (Admin → Systems → this unit → Farm size) — until
+                      then, the full published price list below shows every plan at every size.
+                    </div>
                   </div>
-                </div>
+                  <div className="muted small" style={{ marginTop: 10, fontWeight: 700 }}>
+                    Every plan, priced for every farm size
+                  </div>
+                </>
               )}
             </Card>
           );
@@ -195,8 +206,8 @@ export default function FarmerSubscriptions() {
       </div>
 
       <div className="row-between" style={{ marginTop: 20 }}>
-        <h3 style={{ margin: 0 }}>{showAll ? 'The full price list' : 'Subscriptions for other farm sizes'}</h3>
-        <Btn small onClick={() => setShowAll((v) => !v)}>
+        <h3 style={{ margin: 0 }}>{showAll ? 'All subscription plans and prices' : 'Subscriptions for other farm sizes'}</h3>
+        <Btn small onClick={() => setShowAllPref(!showAll)}>
           {showAll ? 'Hide other farm sizes' : 'View all subscription plans'}
         </Btn>
       </div>
