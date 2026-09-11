@@ -4,7 +4,8 @@
  * and is the single source of truth the store and UI build on.
  */
 import { ANIMALS } from './presets.js';
-import { DAY_MS, diffDays, daysUntil, startOfDay } from './time.js';
+import { DAY_MS, diffDays, daysUntil, fmtDate, startOfDay } from './time.js';
+import { coverageFor, termById } from './subscriptions.js';
 
 export const DEVICE_STATUS = { ONLINE: 'online', OFFLINE: 'offline', WARNING: 'warning', CRITICAL: 'critical', LOCKED: 'locked' };
 export const SEVERITY = { CRITICAL: 'critical', WARNING: 'warning', INFO: 'info' };
@@ -12,7 +13,8 @@ export const PAYMENT_STATUS = { PENDING: 'pending', SUCCESSFUL: 'successful', FA
 export const ALERT_KEYS = {
   TEMP_HIGH: 'temp_high', TEMP_LOW: 'temp_low', SENSOR_FAULT: 'sensor_fault',
   DEVICE_OFFLINE: 'device_offline', SUB_EXPIRING: 'sub_expiring', SUB_EXPIRED: 'sub_expired',
-  DEVICE_LOCKED: 'device_locked', BATCH_ENDING: 'batch_ending', BATCH_ENDED: 'batch_ended',
+  DEVICE_LOCKED: 'device_locked', SUB_SHORT_OF_BATCH: 'sub_short_of_batch',
+  SUB_LAST_BATCH: 'sub_last_batch', BATCH_ENDING: 'batch_ending', BATCH_ENDED: 'batch_ended',
   MAINTENANCE_DUE: 'maintenance_due', POWER_LOSS: 'power_loss',
 };
 
@@ -170,6 +172,25 @@ export function generateAlerts(device, nowIso) {
       out.push({ key: ALERT_KEYS.BATCH_ENDING, severity: SEVERITY.INFO, message: `The current cycle ends in ${rem} day${rem === 1 ? '' : 's'}.` });
     }
   }
+
+  // A subscription is bought per batch, so the question that matters is whether
+  // it reaches the end of the one running now — a plan that runs out mid-cycle
+  // locks the unit with the animals still in it.
+  const cover = sub && device.batch ? coverageFor(sub, device.batch, nowIso) : null;
+  if (cover && cover.term && cover.batchDays && !cover.expired && !cover.coversBatch) {
+    out.push({
+      key: ALERT_KEYS.SUB_SHORT_OF_BATCH,
+      severity: SEVERITY.WARNING,
+      message: `Subscription ends ${fmtDate(sub.endDate)} — ${cover.shortfallDays} day${cover.shortfallDays === 1 ? '' : 's'} before this ${cover.batchDays}-day batch does. Renew or extend it to stay unlocked to the end of the cycle.`,
+    });
+  } else if (cover && cover.term && !cover.expired && cover.batchesCovered > 0 && cover.batchesLeft === 0) {
+    out.push({
+      key: ALERT_KEYS.SUB_LAST_BATCH,
+      severity: SEVERITY.INFO,
+      message: `This ${cover.term.name} is paying for its last whole batch of ${cover.batchDays} days — renew before the next cycle starts.`,
+    });
+  }
+
   return out;
 }
 
@@ -202,15 +223,40 @@ export function churnRisk(lastBatchEndIso, nowIso) {
   return { level: 'none', months: 0, label: 'active' };
 }
 
-/** Projected monthly recurring revenue from active subscriptions. */
+/**
+ * How many days of cover a subscription holds: the window it was sold as, or —
+ * when a record predates the window being stored — the length of its plan.
+ */
+export function subscriptionDays(sub, plan) {
+  const start = Date.parse(sub?.startDate || '');
+  const end = Date.parse(sub?.endDate || '');
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    return Math.max(1, Math.ceil((end - start) / DAY_MS));
+  }
+  const days = Number(plan?.durationDays ?? termById(sub?.planId)?.days);
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+/**
+ * Projected monthly recurring revenue from the subscriptions that are running.
+ *
+ * A subscription is money already taken for a fixed number of days, so a month
+ * of it is worth (price paid / days of cover) x 30. The price is the one the
+ * farmer's own farm size and plan produced at the time — read from the
+ * subscription itself, never re-derived from today's sheet, so a price change
+ * cannot rewrite what somebody already paid.
+ */
 export function forecastMrr(devices, plans, nowIso) {
   let total = 0;
   for (const d of devices) {
     const sub = d.subscription;
     if (!sub || sub.status !== 'active') continue;
     if (subscriptionState(sub.endDate, nowIso) !== 'active') continue;
-    const plan = plans.find((p) => p.id === sub.planId);
-    if (plan) total += plan.price / (plan.durationDays / 30);
+    const plan = (plans || []).find((p) => p.id === sub.planId);
+    const days = subscriptionDays(sub, plan);
+    const price = typeof sub.price === 'number' ? sub.price : Number(plan?.price);
+    if (!days || !Number.isFinite(price)) continue;
+    total += price / (days / 30);
   }
   return Math.round(total);
 }

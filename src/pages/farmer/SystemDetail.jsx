@@ -6,9 +6,11 @@ import {
   maintenanceDue, stepDownTargets, subscriptionState,
 } from '../../lib/services.js';
 import { ANIMALS } from '../../lib/presets.js';
+import { coverageFor } from '../../lib/subscriptions.js';
 import { fmtDate, fmtDateTime, timeAgo } from '../../lib/time.js';
 import { LineChart } from '../../components/charts.jsx';
 import { Badge, Btn, Card, Field, Modal, Progress, SevDot, StatusBadge } from '../../components/ui.jsx';
+import { PlanFitNote } from '../../components/PlanFitNote.jsx';
 import { PowerSwitch } from '../../components/PowerSwitch.jsx';
 import { Icon } from '../../components/icons.jsx';
 import { t } from '../../i18n/strings.js';
@@ -39,6 +41,8 @@ export default function FarmerSystemDetail() {
 
   const avg = avgTemp(device?.sensors);
   const day = device?.batch ? batchDay(device.batch.startDate, device.batch.durationDays, now) : 1;
+  /** Whether this system's plan reaches the end of the batch it is paying for. */
+  const cover = device ? coverageFor(device.subscription, device.batch, now) : null;
   const { min, max } = stepDownTargets(device?.baseMin ?? 35, device?.baseMax ?? 37, day);
   const status = device ? deviceStatus(device, now) : null;
   const locked = device ? deviceLocked(device, now) : true;
@@ -245,6 +249,15 @@ export default function FarmerSystemDetail() {
                   <div>
                     <div style={{ fontWeight: 800 }}>{state.plans.find((p) => p.id === sub.planId)?.name || 'Plan'} plan</div>
                     <div className="muted small">Expires {fmtDate(sub.endDate)}</div>
+                    {cover && (
+                      <div className={`muted small ${cover.batchDays && !cover.coversBatch ? 'power-switch-status bad' : ''}`}>
+                        {!cover.batchDays
+                          ? 'No batch is running yet.'
+                          : cover.coversBatch
+                            ? `Covers this ${cover.batchDays}-day batch to its last day.`
+                            : `Ends ${cover.shortfallDays} day${cover.shortfallDays === 1 ? '' : 's'} before this batch does — renew to cover the cycle.`}
+                      </div>
+                    )}
                   </div>
                   <Badge tone="ok">{daysLeft} days left</Badge>
                 </div>
@@ -299,6 +312,7 @@ function StartBatchModal({ device, onClose, dispatch, now }) {
         <Field label="Start date"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
       </div>
       <p className="muted small">Recommended range: {preset.baseMin}–{preset.baseMax}°C, {preset.durationDays} days. The system auto-steps targets down as the animals grow.</p>
+      <PlanFitNote device={device} durationDays={durNum} startDate={new Date(`${start}T06:00:00`).toISOString()} />
       <div className="btn-row">
         <Btn variant="green" disabled={!formValid} onClick={() => {
           dispatch({ type: 'START_BATCH', deviceId: device.id, animal, durationDays: durNum, count: cntNum, startDate: new Date(`${start}T06:00:00`).toISOString() });

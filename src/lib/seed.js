@@ -3,8 +3,16 @@
  * All dates are generated relative to "now" so the demo always looks live:
  * some subscriptions are expiring soon, one device is locked (expired),
  * one farmer is a churn candidate, a payment is pending, etc.
+ *
+ * Subscriptions and payments are built from the approved price sheet
+ * (src/lib/subscriptions.js), never from hand-typed prices: the farm size a
+ * device is registered with decides the band, the band and the plan decide the
+ * money. The demo therefore also carries the two cases a per-batch
+ * subscription has to live with — a plan that ends before its batch does
+ * (BRD002, BRD005) and a long plan paying for several batches in a row (BRD003).
  */
-import { addDays } from './time.js';
+import { addDays, fmtDate } from './time.js';
+import { TERMS, bandForChicks, priceFor } from './subscriptions.js';
 
 function iso(daysFromNow, hour = 9) {
   const d = new Date();
@@ -19,11 +27,65 @@ function minutesAgo(m) {
 const SENSORS = (temps, enabled = [true, true, true, true]) =>
   temps.map((t, i) => ({ id: i + 1, enabled: enabled[i], lastReading: t, health: 'ok' }));
 
-export const PLANS = [
-  { id: 'p15', name: '15-Day', durationDays: 15, price: 15000, active: true, description: 'Short cycle (piglets, small batches)' },
-  { id: 'p30', name: '30-Day', durationDays: 30, price: 25000, active: true, description: 'Standard cycle (chickens)' },
-  { id: 'p90', name: '90-Day', durationDays: 90, price: 65000, active: true, description: 'Multiple cycles — best value' },
-];
+const termOf = (id) => TERMS.find((t) => t.id === id);
+
+/**
+ * The five plans the platform sells. A plan is a duration; what it costs comes
+ * from the farm size it is bought for, so no price is attached here.
+ */
+export const PLANS = TERMS.map((t) => ({
+  id: t.id,
+  name: t.name.replace(/ Plan$/, ''),
+  durationDays: t.days,
+  multiplier: t.multiplier,
+  active: true,
+  description: t.description,
+}));
+
+/**
+ * A subscription as it looks on a real device: the farm size it was bought for,
+ * the band that farm size falls in, and the price the sheet gives for the two.
+ */
+function sub(termId, farmSize, startedDaysAgo, patch = {}) {
+  const term = termOf(termId);
+  const band = bandForChicks(farmSize);
+  const startDate = iso(-startedDaysAgo);
+  return {
+    planId: termId,
+    bandId: band.id,
+    farmSize,
+    price: priceFor(band, term),
+    status: 'active',
+    startDate,
+    endDate: addDays(startDate, term.days),
+    batchesUsed: 1,
+    ...patch,
+  };
+}
+
+/** A MoMo payment for one plan on one farm size. */
+function pay(id, farmerId, deviceId, termId, farmSize, daysAgo, status, providerRef, patch = {}) {
+  const term = termOf(termId);
+  const band = bandForChicks(farmSize);
+  const startDate = iso(-daysAgo);
+  return {
+    id,
+    farmerId,
+    deviceId,
+    planId: termId,
+    bandId: band.id,
+    farmSize,
+    amount: priceFor(band, term),
+    method: 'MTN MoMo',
+    status,
+    providerConfirmed: status === 'successful',
+    providerRef,
+    period: `${fmtDate(startDate)} – ${fmtDate(addDays(startDate, term.days))}`,
+    createdAt: iso(-daysAgo, 10),
+    confirmedAt: status === 'successful' ? iso(-daysAgo, 10) : null,
+    ...patch,
+  };
+}
 
 export const FARMERS = [
   { id: 'f1', name: 'Jean Damascene', phone: '0788123456', email: 'jean@farm.rw', district: 'Kigali', sector: 'Gasabo', status: 'active', createdAt: iso(-160), lastActiveBatchEnd: iso(-2) },
@@ -42,7 +104,8 @@ export const DEVICES = [
     batch: { animal: 'chicken', startDate: iso(-7), durationDays: 21, count: 1000, status: 'running' },
     sensors: SENSORS([35.1, 34.8, 35.4, 35.0]),
     heaterOn: true, lastSeen: minutesAgo(0.2),
-    subscription: { planId: 'p30', status: 'active', startDate: iso(-7), endDate: iso(23) },
+    farmSize: 1000,                                            // 1,000–1,199 chicks band
+    subscription: sub('t30d', 1000, 7),                        // one 21-day cycle, covered
     manualStatus: null,
   },
   {
@@ -52,7 +115,8 @@ export const DEVICES = [
     batch: { animal: 'duck', startDate: iso(-4), durationDays: 28, count: 400, status: 'running' },
     sensors: SENSORS([34.2, 34.0, 34.4, 34.1]),
     heaterOn: true, lastSeen: minutesAgo(0.4),
-    subscription: { planId: 'p30', status: 'active', startDate: iso(-28), endDate: iso(2) }, // expires in 2 days
+    farmSize: 400,
+    subscription: sub('t30d', 400, 28),   // expires in 2 days, 21 days before its duck batch ends
     manualStatus: null,
   },
   {
@@ -62,7 +126,8 @@ export const DEVICES = [
     batch: { animal: 'chicken', startDate: iso(0), durationDays: 21, count: 800, status: 'running' },
     sensors: SENSORS([35.5, 35.2, 35.6, 35.3]),
     heaterOn: true, lastSeen: minutesAgo(0.3),
-    subscription: { planId: 'p90', status: 'active', startDate: iso(-60), endDate: iso(30) },
+    farmSize: 3000,
+    subscription: sub('t6m', 3000, 60, { batchesUsed: 3 }),  // 8 cycles of 21 days: on the 3rd
     manualStatus: null,
   },
   {
@@ -72,7 +137,8 @@ export const DEVICES = [
     batch: { animal: 'turkey', startDate: iso(-11), durationDays: 28, count: 300, status: 'running' },
     sensors: SENSORS([33.1, 34.6, 34.3, 34.4], [true, true, false, true]), // sensor 3 off
     heaterOn: true, lastSeen: minutesAgo(1.1),
-    subscription: { planId: 'p30', status: 'active', startDate: iso(-21), endDate: iso(9) },
+    farmSize: 500,
+    subscription: sub('t40d', 500, 21),   // a 40-day plan for one 28-day turkey cycle
     manualStatus: null,
   },
   {
@@ -82,7 +148,8 @@ export const DEVICES = [
     batch: { animal: 'pig', startDate: iso(-2), durationDays: 21, count: 120, status: 'running' },
     sensors: SENSORS([31.2, 31.0, 31.4, 31.1]),
     heaterOn: true, lastSeen: minutesAgo(0.5),
-    subscription: { planId: 'p15', status: 'active', startDate: iso(-13), endDate: iso(45) },
+    farmSize: 200,
+    subscription: sub('t15d', 200, 2),   // a 15-day plan cannot pay for a 21-day batch
     manualStatus: null,
   },
   {
@@ -92,7 +159,8 @@ export const DEVICES = [
     batch: null, // no active batch — churn candidate
     sensors: SENSORS([24.0, 23.8, 24.1, 23.9]),
     heaterOn: false, lastSeen: minutesAgo(9),
-    subscription: { planId: 'p30', status: 'expired', startDate: iso(-90), endDate: iso(-30) }, // LOCKED
+    farmSize: 600,
+    subscription: sub('t30d', 600, 90, { status: 'expired', batchesUsed: 0 }), // LOCKED
     manualStatus: null,
   },
   {
@@ -102,7 +170,10 @@ export const DEVICES = [
     batch: { animal: 'chicken', startDate: iso(-14), durationDays: 21, count: 600, status: 'running' },
     sensors: SENSORS([34.1, 34.3, 34.0, 34.2]),
     heaterOn: true, lastSeen: minutesAgo(0.6),
-    subscription: { planId: 'p30', status: 'active', startDate: iso(-25), endDate: iso(5) }, // expires in 5 days
+    farmSize: 2000,
+    // 30 days started 24 days ago: it ends on the batch's own last day — covered,
+    // with nothing to spare.
+    subscription: sub('t30d', 2000, 24),
     manualStatus: null,
   },
   {
@@ -112,19 +183,20 @@ export const DEVICES = [
     batch: null,
     sensors: SENSORS([22.5, 22.4, 22.6, 22.5]),
     heaterOn: false, lastSeen: minutesAgo(3),
-    subscription: { planId: 'p15', status: 'expired', startDate: iso(-45), endDate: iso(-30) }, // LOCKED — renewal demo
+    farmSize: 800,
+    subscription: sub('t30d', 800, 75, { status: 'expired', batchesUsed: 0 }), // LOCKED — renewal demo
     manualStatus: null,
   },
 ];
 
 export const PAYMENTS = [
-  { id: 'pay1', farmerId: 'f1', deviceId: 'BRD001', amount: 25000, method: 'MTN MoMo', status: 'successful', providerConfirmed: true, providerRef: 'MOMO-8FK2Q1', planId: 'p30', period: '07 Sep – 07 Oct 2026', createdAt: iso(-7, 10), confirmedAt: iso(-7, 10, 2) },
-  { id: 'pay2', farmerId: 'f1', deviceId: 'BRD002', amount: 25000, method: 'MTN MoMo', status: 'successful', providerConfirmed: true, providerRef: 'MOMO-91L0X7', planId: 'p30', period: '12 Aug – 11 Sep 2026', createdAt: iso(-28, 11), confirmedAt: iso(-28, 11, 2) },
-  { id: 'pay3', farmerId: 'f2', deviceId: 'BRD003', amount: 65000, method: 'MTN MoMo', status: 'successful', providerConfirmed: true, providerRef: 'MOMO-4H3B9Z', planId: 'p90', period: '12 Jul – 10 Oct 2026', createdAt: iso(-60, 9), confirmedAt: iso(-60, 9, 3) },
-  { id: 'pay4', farmerId: 'f3', deviceId: 'BRD004', amount: 25000, method: 'MTN MoMo', status: 'successful', providerConfirmed: true, providerRef: 'MOMO-7T6M2A', planId: 'p30', period: '21 Aug – 20 Sep 2026', createdAt: iso(-21, 12), confirmedAt: iso(-21, 12, 1) },
-  { id: 'pay5', farmerId: 'f4', deviceId: 'BRD005', amount: 15000, method: 'MTN MoMo', status: 'successful', providerConfirmed: true, providerRef: 'MOMO-2P8N4C', planId: 'p15', period: '05 Sep – 20 Sep 2026', createdAt: iso(-13, 8), confirmedAt: iso(-13, 8, 2) },
-  { id: 'pay6', farmerId: 'f5', deviceId: 'BRD006', amount: 25000, method: 'MTN MoMo', status: 'failed', providerConfirmed: false, providerRef: null, planId: 'p30', period: 'Renewal', createdAt: iso(-31, 14), confirmedAt: null },
-  { id: 'pay7', farmerId: 'f2', deviceId: 'BRD008', amount: 15000, method: 'MTN MoMo', status: 'pending', providerConfirmed: false, providerRef: null, planId: 'p15', period: 'Renewal', createdAt: minutesAgo(8), confirmedAt: null },
+  pay('pay1', 'f1', 'BRD001', 't30d', 1000, 7, 'successful', 'MOMO-8FK2Q1'),
+  pay('pay2', 'f1', 'BRD002', 't30d', 400, 28, 'successful', 'MOMO-91L0X7'),
+  pay('pay3', 'f2', 'BRD003', 't6m', 3000, 60, 'successful', 'MOMO-4H3B9Z'),
+  pay('pay4', 'f3', 'BRD004', 't40d', 500, 21, 'successful', 'MOMO-7T6M2A'),
+  pay('pay5', 'f4', 'BRD005', 't15d', 200, 2, 'successful', 'MOMO-2P8N4C'),
+  pay('pay6', 'f5', 'BRD006', 't30d', 600, 31, 'failed', null),
+  pay('pay7', 'f2', 'BRD008', 't30d', 800, 0, 'pending', null, { createdAt: minutesAgo(8) }),
 ];
 
 export const ALERTS = [

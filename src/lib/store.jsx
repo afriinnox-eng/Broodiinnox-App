@@ -8,6 +8,9 @@ import {
   deviceMode, liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
+  bandForChicks, bandLabel, coverageFor, deviceBand, deviceChicks, priceFor, termById,
+} from './subscriptions.js';
+import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
   simulateMoMo, stepDownTargets, uid, PAYMENT_STATUS, SEVERITY,
 } from './services.js';
@@ -254,16 +257,35 @@ function reducer(state, action) {
       const dev = state.devices.find((d) => d.id === deviceId);
       if (!dev) return state;
       const preset = { chicken: [35, 37], duck: [33, 35], turkey: [34, 36], pig: [30, 32] }[animal] || [35, 37];
+      const batch = { animal, startDate, durationDays, count, status: 'running' };
+      // The subscription is what pays for a batch, so the batch is recorded
+      // against it — and the log says plainly whether the plan reaches the end
+      // of the cycle the farmer is starting.
+      const cover = coverageFor(dev.subscription, batch, nowIso());
+      const covered = !!cover.term && !cover.expired;
+      const fit = !covered
+        ? ' — no subscription is paying for it'
+        : cover.coversBatch
+          ? ` — ${cover.term.name} covers it (${cover.batchesUsed + 1} of ${cover.batchesCovered} batches)`
+          : ` — ${cover.term.name} ends ${cover.shortfallDays}d before it (renew or extend)`;
       return withAudit(
         {
           ...state,
           devices: state.devices.map((d) =>
             d.id === deviceId
-              ? { ...d, batch: { animal, startDate, durationDays, count, status: 'running' }, baseMin: preset[0], baseMax: preset[1] }
+              ? {
+                ...d,
+                batch,
+                baseMin: preset[0],
+                baseMax: preset[1],
+                subscription: covered && d.subscription
+                  ? { ...d.subscription, batchesUsed: (d.subscription.batchesUsed || 0) + 1 }
+                  : d.subscription,
+              }
               : d
           ),
         },
-        { user: state.session?.name, role: state.session?.role, action: 'batch.start', details: `${deviceId} started ${animal} batch (${durationDays}d, ${count} animals)` }
+        { user: state.session?.name, role: state.session?.role, action: 'batch.start', details: `${deviceId} started ${animal} batch (${durationDays}d, ${count} animals)${fit}` }
       );
     }
 
@@ -327,15 +349,36 @@ function reducer(state, action) {
 
     case 'REQUEST_PAYMENT': {
       const { farmerId, deviceId, planId, phone } = action;
-      const plan = state.plans.find((p) => p.id === planId);
+      const dev = state.devices.find((d) => d.id === deviceId);
+      const term = termById(planId);
+      const band = deviceBand(dev);
+      const amount = priceFor(band, term);
+      // A plan only has a price against a farm size, and the sheet quotes nothing
+      // above 15,999 chicks. Refuse and say why rather than charge a guess.
+      if (!dev || !term || amount === null) {
+        return {
+          ...state,
+          toast: {
+            msg: !dev
+              ? 'That system is not in this account.'
+              : !band
+                ? 'No farm size is recorded for this system yet — Afriinnox records it at installation, and every plan is priced from it.'
+                : 'This farm size is quoted individually — contact Afriinnox for a custom plan.',
+            kind: 'error',
+            at: Date.now(),
+          },
+        };
+      }
       const payment = {
         id: uid('pay'), farmerId, deviceId, planId, phone,
-        amount: plan ? plan.price : 0, method: 'MTN MoMo', status: PAYMENT_STATUS.PENDING,
-        providerConfirmed: false, providerRef: null, period: `${plan?.name || ''} renewal`, createdAt: nowIso(), confirmedAt: null,
+        bandId: band.id, farmSize: deviceChicks(dev), amount,
+        method: 'MTN MoMo', status: PAYMENT_STATUS.PENDING,
+        providerConfirmed: false, providerRef: null,
+        period: `${term.name} — ${bandLabel(band)}`, createdAt: nowIso(), confirmedAt: null,
       };
       return withAudit(
         { ...state, payments: [payment, ...state.payments] },
-        { user: state.session?.name, role: state.session?.role, action: 'payment.request', details: `MoMo payment requested for ${deviceId} (RWF ${payment.amount})` }
+        { user: state.session?.name, role: state.session?.role, action: 'payment.request', details: `MoMo payment requested for ${deviceId}: ${term.name} for ${bandLabel(band)} (RWF ${amount})` }
       );
     }
 
@@ -346,16 +389,35 @@ function reducer(state, action) {
       const confirmed = { ...payment, status: ok ? PAYMENT_STATUS.SUCCESSFUL : PAYMENT_STATUS.FAILED, providerConfirmed: ok, confirmedAt: nowIso() };
       let next = { ...state, payments: state.payments.map((p) => (p.id === payment.id ? confirmed : p)) };
       if (ok) {
-        const plan = state.plans.find((p) => p.id === payment.planId);
+        const term = termById(payment.planId);
         const start = nowIso();
-        const end = plan ? addDays(start, plan.durationDays) : start;
         next = {
           ...next,
-          devices: next.devices.map((d) =>
-            d.id === payment.deviceId
-              ? { ...d, subscription: { planId: payment.planId, status: 'active', startDate: start, endDate: end } }
-              : d
-          ),
+          devices: next.devices.map((d) => {
+            if (d.id !== payment.deviceId) return d;
+            const current = d.subscription;
+            // A renewal EXTENDS the cover the farmer already has instead of
+            // throwing the days left away; the price paid and the farm size it
+            // was bought for are kept as history, not re-derived later.
+            const stillRunning = !!current && current.status === 'active'
+              && Date.parse(current.endDate || '') > Date.parse(start);
+            const beginsAt = stillRunning ? current.endDate : start;
+            return {
+              ...d,
+              subscription: {
+                planId: payment.planId,
+                bandId: payment.bandId ?? current?.bandId ?? null,
+                farmSize: payment.farmSize ?? d.farmSize ?? null,
+                price: stillRunning && typeof current.price === 'number'
+                  ? current.price + payment.amount
+                  : payment.amount,
+                status: 'active',
+                startDate: stillRunning ? current.startDate : start,
+                endDate: term ? addDays(beginsAt, term.days) : beginsAt,
+                batchesUsed: stillRunning ? (current.batchesUsed || 0) : 0,
+              },
+            };
+          }),
           notifications: [
             { id: uid('n'), farmerId: payment.farmerId, title: 'Payment received', body: `Your RWF ${payment.amount} payment was confirmed. Device unlocked.`, severity: 'info', read: false, at: nowIso() },
             ...next.notifications,
@@ -380,18 +442,54 @@ function reducer(state, action) {
         { user: state.session?.name, role: state.session?.role, action: 'plan.update', details: `Updated plan ${action.id}` }
       );
 
+    case 'SET_DEVICE_FARM_SIZE': {
+      // The farm size is what a subscription is priced on, so it is set by
+      // Afriinnox (the admin console) and only shown to a farmer: a farmer must
+      // not be able to lower their own bill. A subscription already bought keeps
+      // the band and price it was bought at — history is never re-derived.
+      const { deviceId, farmSize } = action;
+      if (state.session?.role !== 'admin') return state;
+      const dev = state.devices.find((d) => d.id === deviceId);
+      if (!dev) return state;
+      const size = Number.isInteger(farmSize) && farmSize > 0 ? farmSize : null;
+      if (size === null) return state;
+      const band = bandForChicks(size);
+      return withAudit(
+        { ...state, devices: state.devices.map((d) => (d.id === deviceId ? { ...d, farmSize: size } : d)) },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: 'device.farm_size',
+          details: `${deviceId} farm size set to ${size} chicks${band ? ` (${bandLabel(band)})` : ' — above the published price list'}`,
+          prev: { farmSize: dev.farmSize ?? null },
+          next: { farmSize: size },
+        }
+      );
+    }
+
     case 'REGISTER_DEVICE': {
+      const farmSize = Number.isInteger(action.farmSize) && action.farmSize > 0 ? action.farmSize : null;
       const dev = {
         id: action.serial, serial: action.serial, name: action.name || action.serial, farmerId: action.farmerId || null,
         firmware: 'v2.1.0', installedAt: nowIso(), location: action.location || { district: '—', sector: '—', lat: 0, lng: 0 },
         baseMin: 35, baseMax: 37, safetyFloor: 20, batch: null,
         sensors: [1, 2, 3, 4].map((i) => ({ id: i, enabled: true, lastReading: 24, health: 'ok' })),
-        heaterOn: false, lastSeen: nowIso(), subscription: { planId: null, status: 'inactive', startDate: null, endDate: null },
+        heaterOn: false, lastSeen: nowIso(),
+        // The farm size is recorded WITH the device: it is what every plan is
+        // priced against, so it can never be guessed at billing time.
+        farmSize,
+        subscription: { planId: null, bandId: null, price: null, status: 'inactive', startDate: null, endDate: null },
         manualStatus: null,
       };
+      const band = bandForChicks(farmSize);
       return withAudit(
         { ...state, devices: [...state.devices, dev] },
-        { user: state.session?.name, role: state.session?.role, action: 'device.register', details: `Registered ${action.serial}` }
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: 'device.register',
+          details: `Registered ${action.serial}${band ? ` — farm size ${farmSize} chicks (${bandLabel(band)})` : ' — farm size not set'}`,
+        }
       );
     }
 

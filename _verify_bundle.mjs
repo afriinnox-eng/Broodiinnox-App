@@ -73,6 +73,15 @@ async function waitFor(label, fn, ms = 8000) {
 }
 const click = (el) => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
 const byText = (sel, re) => [...doc.querySelectorAll(sel)].find((el) => re.test(el.textContent || ''));
+/** Wait for the app to render something, without failing if it never comes. */
+async function soon(fn, ms = 4000) {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    if (fn()) return true;
+    if (Date.now() > deadline) return false;
+    await sleep(25);
+  }
+}
 
 /* 5. sign in as a farmer, open My Systems — the path a user takes */
 await waitFor('the app to mount the login screen', () => doc.querySelector('form, .login-card, h1'));
@@ -120,6 +129,22 @@ console.log(`[bundle] after ON: aria-checked=${sw().getAttribute('aria-checked')
 if (!stillManual) fail('switching ON lost MAN — the reported bug is still there');
 
 console.log('[bundle] verdict: the assembled app renders both controls and MAN survives an OFF/ON round trip: YES');
+
+/* 8. the subscription page: this farm's own band first, other sizes on request */
+click(await waitFor('the Subscriptions nav link', () => doc.querySelector('a[href="#/farmer/subscriptions"]')));
+const viewAll = await waitFor('the subscription plans', () => byText('button', /View all subscription plans/i));
+const ownBand = /Plans for 1,000–1,199 chicks/.test(doc.body.textContent);
+const ownPrice = /RWF 52,800/.test(doc.body.textContent);          // 30-Day on 1,000–1,199 chicks
+const otherBefore = /RWF 1,368,000/.test(doc.body.textContent);    // 1-Year on 10,000+ chicks
+console.log(`[bundle] subscriptions: plans for the farm's own size shown=${ownBand}, its 30-Day price ${ownPrice ? 'RWF 52,800 shown' : 'missing'}, another size's price shown before the button=${otherBefore}`);
+if (!ownBand || !ownPrice) fail('the subscription page does not price the plans for the farm size');
+if (otherBefore) fail('plans of other farm sizes are visible before the button is pressed');
+
+click(viewAll);
+const otherAfter = await soon(() => /RWF 1,368,000/.test(doc.body.textContent));
+const customized = /Customized/.test(doc.body.textContent);
+console.log(`[bundle] after "View all subscription plans": every farm size shown=${otherAfter}, the customized top band labelled=${customized}`);
+if (!otherAfter) fail('the button did not reveal the other farm sizes');
 window.close();
 server.close();
 process.exit(0);

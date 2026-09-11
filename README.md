@@ -111,6 +111,44 @@ re-sent, throttled and capped: `manual_relay_control` lives in RAM only, so a
 reboot drops it. `_mode_probe.mjs` drives the real unit through all three
 payloads and restores the state it found.
 
+### Subscriptions: farm size -> plan -> price, paid per batch
+
+The price list is the approved sheet (`Broodiinnox_Prices_Subscription.pdf`,
+"Prices Based on Farm Sizes — Subscription Plan"), kept as data in
+`src/lib/subscriptions.js`:
+
+- **36 farm-size bands**, from "up to 599 chicks" to "15,000–15,999 chicks".
+  16,000 and above is quoted individually ("Customized") and cannot be bought
+  in the app.
+- **five plans**: 15-Day, 30-Day, 40-Day, 6-Month, 1-Year. The sheet prints the
+  15-Day price per band, and the other four are exact multiples of it — x1.6,
+  x1.8, x5, x8 — in every band. `src/tests/subscriptions.test.js` reproduces all
+  180 published prices band by band, so the app cannot quote a price the sheet
+  does not.
+
+A device is registered **with its farm size** — the maximum number of chicks
+brooded at once — and that is what decides what every plan costs for it. The
+farmer's page therefore shows the plans priced for their own farm size first,
+and one button ("View all subscription plans") opens the whole published list so
+other sizes can be compared. The farm size is Afriinnox's to set, in the admin
+console: a farmer must never be able to lower their own bill.
+
+A subscription is bought **per batch**. A plan pays for the batch running when
+it is bought and, when it is longer, for the cycles after it; a plan shorter
+than one batch has to be extended before the cycle ends or the unit locks with
+the animals still in the house. `coverageFor()` in `src/lib/subscriptions.js`
+answers everything the screens show about that — whether the plan reaches the
+last day of the batch (and by how many days it misses), how many whole cycles it
+pays for (8 x 21 days for a 6-Month plan), how much cover is spent, and how many
+days fall outside a whole batch. Renewing **extends** cover instead of replacing
+it, so days already paid for are never thrown away, and the price paid and the
+band it was bought for stay on the record as history.
+
+Note: the farm size lives in the app's own data (with the rest of the
+subscription and MoMo-payment layer, which is simulated end to end). A unit that
+arrives only from the broodiinnox-api has no farm size until an admin sets one,
+and the app says so rather than quoting it a price.
+
 ## Deploy (Render)
 
 `render.yaml` deploys a **static site** from `main` (`npm ci && npm run build`,

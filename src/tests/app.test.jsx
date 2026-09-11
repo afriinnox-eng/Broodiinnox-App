@@ -134,10 +134,14 @@ describe('MoMo payment flow (behavioural, through the store)', () => {
     expect(subscriptionState(before.subscription.endDate, new Date().toISOString())).toBe('expired');
 
     act(() => {
-      dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f2', deviceId: 'BRD008', planId: 'p15', phone: '0788222333' });
+      dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f2', deviceId: 'BRD008', planId: 't15d', phone: '0788222333' });
     });
     const pending = result.current.state.payments.find((p) => p.deviceId === 'BRD008' && p.status === 'pending');
     expect(pending).toBeTruthy();
+    // the amount is the approved sheet's price for this farm size and plan:
+    // BRD008 broods 800 chicks (800–899) on a 15-Day plan
+    expect(pending.amount).toBe(30000);
+    expect(pending.id).not.toBe('pay7'); // the payment this test just asked for
 
     act(() => {
       dispatch({ type: 'CONFIRM_PAYMENT', paymentId: pending.id, ok: true });
@@ -153,7 +157,7 @@ describe('MoMo payment flow (behavioural, through the store)', () => {
   it('a failed payment does NOT unlock the device (backend decides, not the frontend)', () => {
     const { result } = harness();
     act(() => {
-      result.current.dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f2', deviceId: 'BRD008', planId: 'p15', phone: '0788222333' });
+      result.current.dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f2', deviceId: 'BRD008', planId: 't15d', phone: '0788222333' });
     });
     const pending = result.current.state.payments.find((p) => p.deviceId === 'BRD008' && p.status === 'pending');
     act(() => {

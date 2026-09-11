@@ -3,6 +3,7 @@ import { useStore } from '../../lib/store.jsx';
 import { batchDay, batchRemaining } from '../../lib/services.js';
 import { ANIMALS } from '../../lib/presets.js';
 import { Badge, Btn, Card, DataTable, Field, Modal } from '../../components/ui.jsx';
+import { PlanFitNote } from '../../components/PlanFitNote.jsx';
 import { fmtDate } from '../../lib/time.js';
 import { t } from '../../i18n/strings.js';
 
@@ -73,6 +74,7 @@ function AddBatchModal({ devices, dispatch, onClose }) {
   const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
   const durNum = Number(duration);
   const cntNum = Number(count);
+  const device = devices.find((d) => d.id === deviceId) || devices[0];
   const formValid = Number.isInteger(durNum) && durNum >= 1 && Number.isInteger(cntNum) && cntNum >= 1;
   return (
     <Modal title="Start a batch (admin)" onClose={onClose}>
@@ -91,6 +93,7 @@ function AddBatchModal({ devices, dispatch, onClose }) {
         <Field label="Animals"><input type="number" min={1} value={count} onChange={(e) => setCount(e.target.value)} /></Field>
         <Field label="Start"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
       </div>
+      <PlanFitNote device={device} durationDays={durNum} startDate={new Date(`${start}T06:00:00`).toISOString()} />
       <div className="btn-row">
         <Btn variant="green" disabled={!formValid} onClick={() => {
           dispatch({ type: 'START_BATCH', deviceId, animal, durationDays: durNum, count: cntNum, startDate: new Date(`${start}T06:00:00`).toISOString() });

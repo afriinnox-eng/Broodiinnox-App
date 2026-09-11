@@ -5,6 +5,7 @@ import { ANIMALS } from '../../lib/presets.js';
 import { fmtDate } from '../../lib/time.js';
 import { Badge, Btn, Card, EmptyState, Field, Modal, Progress, Tabs } from '../../components/ui.jsx';
 import { Icon } from '../../components/icons.jsx';
+import { PlanFitNote } from '../../components/PlanFitNote.jsx';
 import { t } from '../../i18n/strings.js';
 
 export default function FarmerBatches() {
@@ -90,6 +91,7 @@ function NewBatchForm({ devices, dispatch, onDone }) {
   const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
   const durNum = Number(duration);
   const cntNum = Number(count);
+  const device = devices.find((d) => d.id === deviceId) || devices[0];
   const formValid = Number.isInteger(durNum) && durNum >= 1 && Number.isInteger(cntNum) && cntNum >= 1;
   if (!devices.length) return <div className="muted">You have no systems to start a batch on.</div>;
   const preset = ANIMALS[animal];
@@ -107,6 +109,7 @@ function NewBatchForm({ devices, dispatch, onDone }) {
         <Field label="Start date"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
       </div>
       <p className="muted small">Recommended: {preset.baseMin}–{preset.baseMax}°C for {preset.durationDays} days. Targets auto-adjust with age.</p>
+      <PlanFitNote device={device} durationDays={durNum} startDate={new Date(`${start}T06:00:00`).toISOString()} />
       <div className="btn-row">
         <Btn variant="green" disabled={!formValid} onClick={() => {
           dispatch({ type: 'START_BATCH', deviceId, animal, durationDays: durNum, count: cntNum, startDate: new Date(`${start}T06:00:00`).toISOString() });
