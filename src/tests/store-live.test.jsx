@@ -371,21 +371,45 @@ it('START_BATCH on a live device survives the next LIVE_SYNC poll', async () => 
   expect(out.queryByText('duck:running:0')).toBeNull(); // count not reset by synth
 });
 
-it('forwards the system ON/OFF switch as a relay command and keeps the chosen state', async () => {
+it('forwards the mode selector and the switch as relay commands, and keeps the selection', async () => {
   let dispatch;
   function P3() {
     const { state, dispatch: d } = useStore();
     dispatch = d;
     const dev = state.devices.find((x) => x.id === 'BROODIINNOX-001');
-    return <div>{dev ? `${dev.live ? 'live' : 'mock'}:${dev.systemOn === false ? 'off' : 'on'}` : 'pending'}</div>;
+    return <div>{dev ? `${dev.live ? 'live' : 'mock'}:${dev.mode || 'auto'}:${dev.systemOn === false ? 'off' : 'on'}` : 'pending'}</div>;
   }
   localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
   const out = render(
     <StoreProvider><P3 /></StoreProvider>
   );
   await flushPoll();
-  expect(out.getByText('live:on')).toBeTruthy();
+  expect(out.getByText('live:auto:on')).toBeTruthy(); // the unit reports AUT
 
+  // In AUT the switch is not the operator's to make: nothing is published.
+  calls.length = 0;
+  await act(async () => {
+    dispatch({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false });
+    await Promise.resolve();
+  });
+  expect(calls.filter((c) => c.method === 'POST' && c.path.includes('/commands'))).toEqual([]);
+  expect(out.getByText('live:auto:on')).toBeTruthy();
+
+  // MAN takes the heater over in the state the unit reports (relay_state true),
+  // so the first payload is relay ON — never relay AUTO.
+  calls.length = 0;
+  await act(async () => {
+    dispatch({ type: 'SET_SYSTEM_MODE', deviceId: 'BROODIINNOX-001', mode: 'manual', on: true });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const modeCommand = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
+  expect(modeCommand).toBeTruthy();
+  expect(modeCommand.body).toEqual({ command: 'relay', value: 'ON' });
+
+  // Now OFF inside MAN. The API row still says relay_state:true /
+  // manual_control:false (the device has applied nothing yet) — the selection
+  // must not flap, and it must not turn into AUT.
   calls.length = 0;
   await act(async () => {
     dispatch({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false });
@@ -396,11 +420,10 @@ it('forwards the system ON/OFF switch as a relay command and keeps the chosen st
   expect(off).toBeTruthy();
   expect(off.body).toEqual({ command: 'relay', value: 'OFF' });
 
-  // The API row still says relay_state:true / manual_control:false (the device
-  // has not applied the command yet) — the switch must not flap back on.
   await flushPoll();
-  expect(out.getByText('live:off')).toBeTruthy();
+  expect(out.getByText('live:manual:off')).toBeTruthy(); // still MAN
 
+  // And ON again comes back to MAN ON, not to automatic.
   calls.length = 0;
   await act(async () => {
     dispatch({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: true });
@@ -409,8 +432,8 @@ it('forwards the system ON/OFF switch as a relay command and keeps the chosen st
   });
   const on = calls.find((c) => c.method === 'POST' && c.path.includes('/commands'));
   expect(on).toBeTruthy();
-  expect(on.body).toEqual({ command: 'relay', value: 'AUTO' });
-  expect(out.getByText('live:on')).toBeTruthy();
+  expect(on.body).toEqual({ command: 'relay', value: 'ON' });
+  expect(out.getByText('live:manual:on')).toBeTruthy();
 });
 
 describe('system power switch against the unit', () => {
@@ -427,10 +450,13 @@ describe('system power switch against the unit', () => {
         <PowerSwitch device={d} lang="en" showHint />
         <span data-testid="power-state">
           {JSON.stringify({
+            mode: d.mode ?? null,
             on: d.systemOn,
             intent: d.powerIntent ?? null,
             pending: !!d.powerPending,
             unconfirmed: !!d.powerUnconfirmed,
+            modePending: !!d.modePending,
+            modeUnconfirmed: !!d.modeUnconfirmed,
             error: d.powerError ?? null,
             toast: state.toast ? state.toast.msg : null,
             toastKind: state.toast ? state.toast.kind : null,
@@ -443,8 +469,9 @@ describe('system power switch against the unit', () => {
   const powerState = (out) => JSON.parse(out.getByTestId('power-state').textContent);
   const switchEl = (out) => out.container.querySelector('[role="switch"]');
 
-  /** Flip the switch off and confirm the danger dialog. */
+  /** Choose MAN, then flip the switch off and confirm the danger dialog. */
   async function switchOff(out) {
+    await act(async () => { fireEvent.click(out.container.querySelector('[data-mode="manual"]')); });
     await act(async () => { fireEvent.click(switchEl(out)); });
     await act(async () => { fireEvent.click(screen.getByText('Yes, switch off')); });
   }
@@ -464,24 +491,27 @@ describe('system power switch against the unit', () => {
     DEVICE_ROW.device_locked = false;
   });
 
-  it('reads the unit back: OFF counts as done only once the hardware reports it', async () => {
+  it('reads the unit back: MAN + OFF counts as done only once the hardware reports it', async () => {
     localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
     const out = render(<StoreProvider><PowerHarness /></StoreProvider>);
     await flushPoll();
 
+    // The unit is in AUT: the system switches the heater itself.
     expect(switchEl(out).getAttribute('aria-checked')).toBe('true');
+    expect(switchEl(out).disabled).toBe(true);
     expect(out.getByText(/Unit confirms: automatic/)).toBeTruthy();
 
-    // The firmware applies `relay OFF` and reports manual control, heater off.
+    // The firmware takes the heater and then applies `relay OFF`.
     DEVICE_ROW.manual_control = true;
     DEVICE_ROW.relay_state = false;
     await switchOff(out);
     await flushPoll();
 
     expect(sent().some((b) => b.command === 'relay' && b.value === 'OFF')).toBe(true);
+    expect(sent().some((b) => b.value === 'AUTO')).toBe(false);
     expect(switchEl(out).getAttribute('aria-checked')).toBe('false');
     expect(out.getByText(/Unit confirms: heating stopped/)).toBeTruthy();
-    expect(powerState(out)).toMatchObject({ on: false, intent: 'off', pending: false, unconfirmed: false });
+    expect(powerState(out)).toMatchObject({ mode: 'manual', on: false, intent: 'off', pending: false, unconfirmed: false });
   });
 
   it('does not claim a command the unit never applied, and never freezes it', async () => {
@@ -492,12 +522,18 @@ describe('system power switch against the unit', () => {
     // The unit does NOT apply it: manual_control stays false.
     await switchOff(out);
     await flushPoll();
-    expect(powerState(out)).toMatchObject({ on: false, intent: 'off', pending: true, unconfirmed: false });
-    expect(out.getByText(/waiting for it to confirm/)).toBeTruthy();
+    expect(powerState(out)).toMatchObject({ mode: 'manual', on: false, intent: 'off', pending: true, unconfirmed: false });
+    expect(out.getByText(/waiting for it to confirm the mode/)).toBeTruthy();
 
-    // Past the grace window it is drift, not a confirmed state.
+    // Past the grace window the unit's own report wins: the screens stop
+    // claiming a mode the hardware never entered, and say so.
     await act(async () => { await vi.advanceTimersByTimeAsync(25000); });
-    expect(powerState(out)).toMatchObject({ on: false, intent: 'off', pending: false, unconfirmed: true });
+    const st = powerState(out);
+    expect(st.mode).toBe('auto');
+    expect(st.modeUnconfirmed).toBe(true);
+    expect(st.on).toBe(true);
+    expect(st.intent).toBeNull();
+    expect(out.getByText(/has not changed mode/)).toBeTruthy();
   });
 
   it('re-sends an OFF the unit dropped, so a reboot cannot silently restart heating', async () => {
@@ -515,7 +551,7 @@ describe('system power switch against the unit', () => {
     expect(after).toBeGreaterThan(first);
   });
 
-  it('reverts the switch and says why when the unit refuses the command', async () => {
+  it('reverts the selection and says why when the unit refuses the command', async () => {
     const original = globalThis.fetch.getMockImplementation();
     globalThis.fetch.mockImplementation(async (url, opts = {}) => {
       if ((opts.method || 'GET').toUpperCase() === 'POST' && String(url).includes('/commands')) {
@@ -528,22 +564,22 @@ describe('system power switch against the unit', () => {
     localStorage.setItem('broodiinnox_app_v1', JSON.stringify({ ...buildSeed(), session: null, reminderSent: [] }));
     const out = render(<StoreProvider><PowerHarness /></StoreProvider>);
     await flushPoll();
-    await switchOff(out);
+    await act(async () => { fireEvent.click(out.container.querySelector('[data-mode="manual"]')); });
     // Let the refusal land, without advancing past the toast's own lifetime.
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
     const st = powerState(out);
     expect(st.error).toMatch(/LOCKED/);
-    expect(String(st.toast)).toContain('Could not switch');
-    // Back to what the hardware actually reports, so the switch is never a lie.
-    expect(switchEl(out).getAttribute('aria-checked')).toBe('true');
-    expect(st.on).toBe(true);
-    expect(st.intent).toBeNull();
+    expect(String(st.toast)).toContain('Could not change the mode');
+    // Back to what the hardware actually reports, so the selector is never a lie.
+    expect(st.mode).toBe('auto');
+    expect(st.toastKind).toBe('error');
+    expect(switchEl(out).disabled).toBe(true);
 
     // And no phantom retries of a command the unit refused.
     await flushPoll();
     await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
-    expect(powerState(out).intent).toBeNull();
-    expect(sent().filter((b) => b.value === 'OFF').length).toBe(1);
+    expect(powerState(out).mode).toBe('auto');
+    expect(sent().length).toBe(1);
   });
 });

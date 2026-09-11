@@ -88,6 +88,29 @@ individual pages (Systems, Live, SystemDetail) to live mode is the next step
 and should be done against a real broker + device so it can be verified
 end-to-end.
 
+### AUT / MAN, and the master ON/OFF switch
+
+Every system carries two controls, because they answer two different questions:
+
+| Control | Firmware payload | What the unit does |
+|---|---|---|
+| **AUT** | `relay AUTO` | its thermostat drives the heater from the temperature against the target band |
+| **MAN**, switch ON | `relay ON` | the operator holds the heater on, whatever the temperature |
+| **MAN**, switch OFF | `relay OFF` | the operator holds the heater off; the unit keeps reporting |
+
+AUT means the system switches the heater itself, so the ON/OFF switch is
+disabled there — the mode is not the operator's to make. MAN hands the heater
+over: the switch is enabled and holds the state the operator sets.
+
+The unit reports the pair back as `manual_control` (the mode) and `relay_state`
+(the heater inside MAN) — `src/lib/live.js` reads both, so no control ever shows
+a state the hardware is not in. A flip of the switch never changes the selected
+mode (an ON used to send `relay AUTO`, which silently put a switched-off system
+back under thermostat control), and a selection the unit has not confirmed is
+re-sent, throttled and capped: `manual_relay_control` lives in RAM only, so a
+reboot drops it. `_mode_probe.mjs` drives the real unit through all three
+payloads and restores the state it found.
+
 ## Deploy (Render)
 
 `render.yaml` deploys a **static site** from `main` (`npm ci && npm run build`,

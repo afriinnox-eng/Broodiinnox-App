@@ -167,9 +167,12 @@ export function storeDeviceFromVm(vm, nowIso) {
     },
     manualLock: !!vm.locked,
     manualStatus: null,
-    // The firmware has no power topic: a unit in manual relay control with the
-    // relay off is a unit someone switched off. Everything else is running.
-    systemOn: !(vm.manual === true && vm.heaterOn === false),
+    // The firmware's manual_relay_control IS the unit's AUT/MAN flag. With it
+    // set, relay_state is a state somebody chose and holds; without it the
+    // thermostat is in charge and the system is running by itself.
+    mode: vmMode(vm),
+    modeIntent: null,
+    systemOn: vm.manual === true ? !!vm.heaterOn : true,
     live: true,
   };
 }
@@ -191,11 +194,20 @@ export function overlayLiveDevice(device, vm, nowIso) {
   const userBatch = device.batch && device.batch.synth !== true;
   const endedBatch = device.batch && device.batch.status === 'ended';
   const keepBatch = userBatch || endedBatch;
-  // Master switch: the operator's command is shown while it stands, but the
-  // UNIT's own report decides whether it has landed. Nothing is frozen — an
-  // unconfirmed command stays visible (and is retried, see
+  // Mode + master switch: the operator's selection is shown while it stands,
+  // but the UNIT's own report decides whether it has landed. Nothing is frozen —
+  // an unconfirmed selection stays visible (and is retried, see
   // powerReassertPlan) and a confirmed one is read back from the hardware.
-  const intent = device.powerIntent === 'on' || device.powerIntent === 'off' ? device.powerIntent : null;
+  const modeIntent = device.modeIntent === 'auto' || device.modeIntent === 'manual' ? device.modeIntent : null;
+  const modeConfirmed = !modeIntent || modeMatchesIntent(modeIntent, vm);
+  const modeStale = !!modeIntent && !modeConfirmed && modeIsStale(device, nowIso);
+  // `mode` is what the screens act on: the selected mode while it stands, the
+  // hardware's own AUT/MAN flag once the unit has spoken or stopped answering.
+  const mode = modeIntent && !modeStale ? modeIntent : vmMode(vm);
+  // A manual heater command only means something inside MAN: selecting AUT
+  // drops it, and the switch reads the thermostat's own relay state again.
+  const intentRaw = device.powerIntent === 'on' || device.powerIntent === 'off' ? device.powerIntent : null;
+  const intent = mode === 'manual' ? intentRaw : null;
   const confirmed = !intent || powerMatchesIntent(intent, vm);
   const stale = !!intent && !confirmed && powerIsStale(device, nowIso);
   return {
@@ -211,7 +223,15 @@ export function overlayLiveDevice(device, vm, nowIso) {
     subscription: keepSub,
     batch: keepBatch ? device.batch : live.batch,
     manualLock: !!vm.locked,
-    systemOn: intent ? intent === 'on' : live.systemOn,
+    mode,
+    modeIntent,
+    modeSetByUser: !!modeIntent,
+    modePending: !!modeIntent && !modeConfirmed && !modeStale,
+    modeUnconfirmed: modeStale,
+    modeConfirmed: !!modeIntent && modeConfirmed,
+    // In AUT this is not the operator's choice at all: the system is running,
+    // the thermostat owns the heater, and the switch only reads the mode back.
+    systemOn: mode === 'manual' ? (intent ? intent === 'on' : live.systemOn) : true,
     powerIntent: intent,
     powerSetByUser: !!intent,
     powerPending: !!intent && !confirmed && !stale,
@@ -224,8 +244,22 @@ export function overlayLiveDevice(device, vm, nowIso) {
 }
 
 /* ------------------------------------------------------------------ */
-/* System power: what the unit reports vs what was commanded           */
+/* Control mode (AUT/MAN) + system power: hardware vs commanded        */
 /* ------------------------------------------------------------------ */
+
+/**
+ * The firmware's `relay` topic is BOTH the mode selector and the ON/OFF
+ * switch, which is why this app exposes them as two controls:
+ *
+ *   relay AUTO  -> manual_relay_control = false  -> AUT: thermostat control
+ *   relay ON    -> manual_relay_control = true   -> MAN: heater held ON
+ *   relay OFF   -> manual_relay_control = true   -> MAN: heater held OFF
+ *
+ * and the unit reports the same pair back as `manual_control` (the mode) and
+ * `relay_state` (the heater inside MAN). The mode therefore survives a flip of
+ * the switch: nothing in this module ever turns a flip into relay AUTO unless
+ * AUT is the selection.
+ */
 
 /** How long a command may go unconfirmed before it counts as drift. */
 export const POWER_CONFIRM_GRACE_MS = 20000;
@@ -237,37 +271,72 @@ export const POWER_MAX_REASSERTS = 5;
 const POWER_ONLINE_WINDOW_MS = 120000;
 
 /**
- * Does the unit report the state a power command asked for?
+ * The control mode a device is in: "auto" (the unit's thermostat decides when
+ * the heater runs) or "manual" (the operator holds it on or off). A device
+ * stored before this existed has no mode and counts as automatic, which is also
+ * the firmware's own state after a reboot.
+ */
+export function deviceMode(device) {
+  return device?.mode === 'manual' ? 'manual' : 'auto';
+}
+
+/** The mode the UNIT reports — the firmware's manual_relay_control flag. */
+export function vmMode(vm) {
+  return vm?.manual === true ? 'manual' : 'auto';
+}
+
+/** Does the unit report the mode a mode command asked for? */
+export function modeMatchesIntent(intent, vm) {
+  if (intent !== 'auto' && intent !== 'manual') return true;
+  return vmMode(vm) === intent;
+}
+
+/**
+ * Does the unit report the heater state a MANUAL power command asked for?
  *
- * The firmware has no power-down topic, so the switch drives the relay:
- * OFF => `relay OFF` (manual, heater forced off) and ON => `relay AUTO`
- * (thermostat control). `manual_control` is therefore the hardware's own
- * confirmation that the command was applied.
+ * Inside MAN the firmware holds the relay where it was told (`relay ON` /
+ * `relay OFF`), so `manual_control` together with `relay_state` is the
+ * hardware's own confirmation that the command applied. While the unit is still
+ * in AUT nothing manual has landed, whatever the thermostat is doing with the
+ * relay — a system heating by itself is not a system held on.
  */
 export function powerMatchesIntent(intent, vm) {
   if (intent !== 'on' && intent !== 'off') return true;
-  const manual = vm?.manual === true;
+  if (vm?.manual !== true) return false;
   const heaterOn = vm?.heaterOn === true;
-  if (intent === 'off') return manual && !heaterOn;
-  return !manual;
+  return intent === 'on' ? heaterOn : !heaterOn;
 }
 
-/** Has a commanded state been unconfirmed long enough to count as drift? */
-export function powerIsStale(device, nowIso, graceMs = POWER_CONFIRM_GRACE_MS) {
-  const at = Date.parse(device?.powerIntentAt || '') || 0;
+/** Has a command sent at `atIso` been unconfirmed long enough to be drift? */
+export function isStale(atIso, nowIso, graceMs = POWER_CONFIRM_GRACE_MS) {
+  const at = Date.parse(atIso || '') || 0;
   if (!at) return false;
   const now = Date.parse(nowIso || '') || Date.now();
   return now - at >= graceMs;
 }
 
+/** Has a commanded heater state been unconfirmed long enough to count as drift? */
+export function powerIsStale(device, nowIso, graceMs = POWER_CONFIRM_GRACE_MS) {
+  return isStale(device?.powerIntentAt, nowIso, graceMs);
+}
+
+/** The same, for a commanded control mode. */
+export function modeIsStale(device, nowIso, graceMs = POWER_CONFIRM_GRACE_MS) {
+  return isStale(device?.modeIntentAt, nowIso, graceMs);
+}
+
 /**
- * Should the app re-send a power command the unit is not showing?
+ * Should the app re-send a selection the unit is not showing?
  *
- * This is what makes OFF stick: `manual_relay_control` lives in RAM only, so a
- * reboot, a power cut or a failsafe recovery silently puts the unit back under
- * thermostat control — heating resumes even though the farmer switched the
- * system off. Re-sends are throttled and capped, and never sent to a locked or
- * silent device (the firmware drops relay commands while LOCKED).
+ * This is what makes the choice stick: `manual_relay_control` lives in RAM
+ * only, so a reboot, a power cut or a failsafe recovery silently puts the unit
+ * back under thermostat control — heating resumes even though the farmer had
+ * switched the system off, and a farmer who chose MAN finds AUT again. The same
+ * command re-sends the MODE: `relay ON`/`relay OFF` re-enters MAN with the
+ * chosen heater state, `relay AUTO` hands control back to the thermostat.
+ *
+ * Re-sends are throttled and capped, and never sent to a locked or silent
+ * device (the firmware drops relay commands while LOCKED).
  */
 export function powerReassertPlan(device, vm, nowIso, opts = {}) {
   const {
@@ -276,18 +345,32 @@ export function powerReassertPlan(device, vm, nowIso, opts = {}) {
     maxRetries = POWER_MAX_REASSERTS,
   } = opts;
   if (!device || device.live !== true) return null;
-  const intent = device.powerIntent;
-  if (intent !== 'on' && intent !== 'off') return null;
   if (device.manualLock) return null;
-  if (powerMatchesIntent(intent, vm)) return null;
-  if (!powerIsStale(device, nowIso, graceMs)) return null;
+
+  const modeIntent = device.modeIntent === 'auto' || device.modeIntent === 'manual' ? device.modeIntent : null;
+  const powerIntent = device.powerIntent === 'on' || device.powerIntent === 'off' ? device.powerIntent : null;
+  const wantMode = modeIntent || deviceMode(device);
+
+  // Which selection the unit is not showing, and when it was made.
+  let value = null;
+  let since = 0;
+  if (!modeMatchesIntent(wantMode, vm)) {
+    value = wantMode === 'auto' ? 'AUTO' : (powerIntent === 'on' ? 'ON' : 'OFF');
+    since = Date.parse(device.modeIntentAt || device.powerIntentAt || '') || 0;
+  } else if (vmMode(vm) === 'manual' && powerIntent && !powerMatchesIntent(powerIntent, vm)) {
+    value = powerIntent === 'on' ? 'ON' : 'OFF';
+    since = Date.parse(device.powerIntentAt || '') || 0;
+  }
+  if (!value || !since) return null;
+
   const now = Date.parse(nowIso || '') || Date.now();
-  const last = Date.parse(device.powerRetryAt || device.powerIntentAt || '') || now;
+  if (now - since < graceMs) return null;
+  const last = Math.max(Date.parse(device.powerRetryAt || '') || 0, since);
   if (now - last < intervalMs) return null;
   if ((device.powerRetries || 0) >= maxRetries) return null;
   const seen = Date.parse(device.lastSeen || '') || 0;
   if (!seen || now - seen > POWER_ONLINE_WINDOW_MS) return null;
-  return { command: 'relay', value: intent === 'on' ? 'AUTO' : 'OFF' };
+  return { command: 'relay', value };
 }
 
 /**
@@ -319,12 +402,24 @@ export function liveCommandPlan(action, device) {
       if (id < 1 || id > 4) return [];
       return [{ command: 'sensor', value: `DS${id}:${action.enabled ? 'ON' : 'OFF'}` }];
     }
+    case 'SET_SYSTEM_MODE': {
+      // AUT/MAN. The firmware's relay topic is what selects the mode: AUTO hands
+      // the heater back to the thermostat, ON/OFF take it (with the heater held
+      // on or off). Selecting MAN therefore sends the state the operator is
+      // choosing to HOLD, and never AUTO — the payload that used to drag the
+      // system back to automatic on every switch-on.
+      if (action.mode === 'auto') return [{ command: 'relay', value: 'AUTO' }];
+      if (action.mode === 'manual') return [{ command: 'relay', value: action.on === true ? 'ON' : 'OFF' }];
+      return [];
+    }
+
     case 'SET_SYSTEM_POWER':
-      // Master switch: ON hands control back to the thermostat (relay AUTO),
-      // OFF stops heating (relay OFF). Exactly the payloads the firmware's
-      // relay topic implements, and both are refused while the device is
-      // LOCKED — hence the switch is disabled for locked systems in the UI.
-      return [{ command: 'relay', value: action.on ? 'AUTO' : 'OFF' }];
+      // Master switch, meaningful inside MAN only: ON holds the heater on, OFF
+      // holds it off, and neither payload is AUTO — the selected mode survives
+      // the flip. In AUT the system switches the heater itself, so there is
+      // nothing to send (the UI disables the switch there as well).
+      if (deviceMode(device) !== 'manual') return [];
+      return [{ command: 'relay', value: action.on ? 'ON' : 'OFF' }];
     case 'LOCK_DEVICE':
       return [{ command: 'device_active', value: action.lock ? 'LOCKED' : 'ACTIVE' }];
     case 'SYNC_TIME':

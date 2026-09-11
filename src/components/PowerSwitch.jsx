@@ -1,29 +1,41 @@
 import React, { useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { avgTemp, controlAllowed } from '../lib/services.js';
-import { POWER_MAX_REASSERTS, liveConfig } from '../lib/live.js';
+import { POWER_MAX_REASSERTS, deviceMode, liveConfig } from '../lib/live.js';
 import { Btn, Modal } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { t } from '../i18n/strings.js';
 
 /**
- * Master ON/OFF switch for one Broodiinnox system — the farmer's and the
- * supervisor's remote power switch.
+ * Remote control for one Broodiinnox system: the AUT/MAN mode selector and the
+ * master ON/OFF switch.
  *
- * What it drives on the hardware: the firmware has no "power the ESP32 down"
- * topic (a unit that is off could never be switched back on remotely), so the
- * switch drives the relay exactly the way the firmware's `relay` topic does:
+ * The two are deliberately separate controls, because they answer different
+ * questions:
  *
- *   ON  -> relay AUTO : thermostat control resumes, the heater follows the
- *                       target range again (never a forced heater ON, which
- *                       would overheat the house)
- *   OFF -> relay OFF  : heating is forced off, the unit keeps reporting, so it
- *                       can always be switched back on from the app
+ *   AUT  the system runs itself — the firmware's thermostat drives the heater
+ *        from the temperature against the target band. Switch ON/OFF is NOT the
+ *        operator's to make here, so the switch is disabled and reads the mode.
+ *   MAN  the operator holds the heater: ON keeps it running, OFF keeps it
+ *        stopped, regardless of the temperature.
  *
- * Switching a brooder off mid-batch is destructive, so OFF asks for
- * confirmation first; ON is immediate. A LOCKED system (lapsed subscription)
- * is disabled like every other control, because the firmware silently ignores
- * relay commands while `device_locked`.
+ * On the wire this is exactly the firmware's `relay` topic, which is what
+ * `mqtt_callback()` implements:
+ *
+ *   AUT      -> relay AUTO   (manual_relay_control = false, thermostat control)
+ *   MAN  ON  -> relay ON     (manual_relay_control = true, heater held ON)
+ *   MAN  OFF -> relay OFF    (manual_relay_control = true, heater held OFF)
+ *
+ * and the unit reports it back as `manual_control` (the mode) plus
+ * `relay_state` (the heater inside MAN) — which is what this app reads, so it
+ * can never show a selection the hardware is not in. Crucially, a flip of the
+ * ON/OFF switch never changes the mode: the mode used to be lost on every
+ * switch-on, because ON sent relay AUTO.
+ *
+ * Switching a brooder off mid-batch is destructive, so MAN OFF asks for
+ * confirmation first; the other transitions are immediate. A LOCKED system
+ * (lapsed subscription) is disabled like every other control, because the
+ * firmware silently ignores relay commands while `device_locked`.
  */
 export function PowerSwitch({ device, lang = 'en', small = false, showLabel = true, showHint = false }) {
   const { state, dispatch } = useStore();
@@ -32,24 +44,32 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
 
   const now = new Date().toISOString();
   const name = device.name || device.id;
-  const on = device.systemOn !== false; // unknown => the system is running
+  const mode = deviceMode(device);
+  const manual = mode === 'manual';
+  // In AUT the system is running and the thermostat owns the heater, so the
+  // knob reads that instead of a state somebody set.
+  const on = manual ? device.systemOn !== false : true;
   const avg = avgTemp(device.sensors);
   const canControl = controlAllowed(device, now, avg);
+  const canFlip = canControl && manual;
 
-  // What the HARDWARE reports, not what the app hopes: a live unit confirms a
-  // relay command through its own `manual_control` flag, so the switch can say
-  // whether the command landed — and retry while it has not.
+  // What the HARDWARE reports, not what the app hopes: a live unit confirms the
+  // mode through its own `manual_control` flag and the heater through
+  // `relay_state`, so both controls can say whether the command landed.
   const live = device.live === true;
+  const modePending = live && device.modePending === true;
+  const modeUnconfirmed = live && device.modeUnconfirmed === true;
+  const modeFailed = modeUnconfirmed && (device.powerRetries || 0) >= POWER_MAX_REASSERTS;
   const pending = live && device.powerPending === true;
   const unconfirmed = live && device.powerUnconfirmed === true;
   const gaveUp = unconfirmed && (device.powerRetries || 0) >= POWER_MAX_REASSERTS;
 
   // This app is wired to the control server, but THIS card has no unit behind
-  // it — a seeded demo system, or one the server does not know. Flipping it
-  // cannot move any hardware, and the switch must say so instead of claiming
-  // an OFF that never left the browser.
+  // it — a seeded demo system, or one the server does not know. Choosing a mode
+  // or flipping it cannot move any hardware, and the card must say so instead
+  // of claiming a command that never left the browser.
   const demoCard = liveConfig.enabled && !live;
-  // ... and if the control server itself is not answering, NO switch can reach
+  // ... and if the control server itself is not answering, NO control can reach
   // a unit, which is the one thing the operator must be told.
   const health = state?.liveHealth || null;
   const serverDown = liveConfig.enabled && health?.ok === false;
@@ -63,17 +83,26 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
     status = t('power.serverDown', lang);
     statusKind = 'bad';
   } else if (live) {
-    if (pending) { status = t('power.unitSending', lang); statusKind = 'pending'; }
+    if (modePending) { status = t('mode.unitSending', lang); statusKind = 'pending'; }
+    else if (modeFailed) { status = t('mode.unitNoConfirm', lang); statusKind = 'bad'; }
+    else if (modeUnconfirmed) { status = t('mode.unitRetrying', lang); statusKind = 'pending'; }
+    else if (pending) { status = t('power.unitSending', lang); statusKind = 'pending'; }
     else if (gaveUp) { status = t('power.unitNoConfirm', lang); statusKind = 'bad'; }
     else if (unconfirmed) { status = t('power.unitRetrying', lang); statusKind = 'pending'; }
-    else status = on ? t('power.unitAuto', lang) : t('power.unitManualOff', lang);
+    else status = manual
+      ? (device.heaterOn ? t('power.unitManualOn', lang) : t('power.unitManualOff', lang))
+      : t('power.unitAuto', lang);
   } else if (showHint) {
-    status = canControl ? (on ? t('power.hintOn', lang) : t('power.hintOff', lang)) : t('power.locked', lang);
+    status = canControl
+      ? (manual
+        ? (device.heaterOn ? t('mode.hintManualOn', lang) : t('power.hintOff', lang))
+        : t('power.hintOn', lang))
+      : t('power.locked', lang);
   }
 
-  // Why the heater is (not) running right now — the difference between ON and
-  // OFF is invisible on the hardware while the temperature sits in the band.
-  const heaterLine = live && showHint
+  // Why the heater is (not) running right now — in AUT the difference between
+  // the target band and the temperature is invisible on the hardware.
+  const heaterLine = live && showHint && !manual
     ? (device.heaterOn
       ? t('power.heaterRunning', lang)
       : t('power.heaterIdle', lang, {
@@ -82,7 +111,11 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
         max: device.targets?.max ?? device.baseMax,
       }))
     : null;
-  const showStatus = demoCard || serverDown || showHint || (live && (pending || unconfirmed || !!device.powerError));
+  // MAN ON holds the relay on whatever the temperature does — that is the point
+  // of manual heating, and the operator should read it where they are looking.
+  const manualOnLine = manual && showHint && device.heaterOn === true ? t('mode.heldOn', lang) : null;
+  const showStatus = demoCard || serverDown || showHint
+    || (live && (pending || unconfirmed || modePending || modeUnconfirmed || !!device.powerError));
 
   const apply = (next) => {
     dispatch({ type: 'SET_SYSTEM_POWER', deviceId: device.id, on: next });
@@ -99,40 +132,100 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
     }
   };
 
-  const actionLabel = t(on ? 'power.turnOff' : 'power.turnOn', lang, { name });
+  const setMode = (next) => {
+    if (next === mode) return;
+    // Choosing MAN takes the heater over in the state it is already in, so the
+    // mode button itself never moves the relay.
+    dispatch({
+      type: 'SET_SYSTEM_MODE',
+      deviceId: device.id,
+      mode: next,
+      on: next === 'manual' ? device.heaterOn === true : undefined,
+    });
+    if (!live) {
+      dispatch({
+        type: 'TOAST',
+        msg: demoCard
+          ? t('mode.demoFlip', lang, { name })
+          : t(next === 'manual' ? 'mode.switchedManual' : 'mode.switchedAuto', lang, { name }),
+      });
+    }
+  };
+
+  const actionLabel = manual
+    ? t(on ? 'power.turnOff' : 'power.turnOn', lang, { name })
+    : t('mode.autoTitle', lang);
 
   return (
     <div className={`power-switch-wrap ${small ? 'small' : ''}`}>
-      {showLabel && <span className="power-switch-label">{t('power.system', lang)}</span>}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={actionLabel}
-        title={canControl ? actionLabel : t('power.locked', lang)}
-        className={`power-switch ${on ? 'on' : 'off'} ${small ? 'small' : ''}`}
-        data-device-id={device.id}
-        data-power={on ? 'on' : 'off'}
-        disabled={!canControl}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (on) setConfirmOff(true);
-          else apply(true);
-        }}
-      >
-        <span className="power-switch-track" aria-hidden="true"><span className="power-switch-knob" /></span>
-        <span className="power-switch-state">
-          <Icon name="power" size={small ? 12 : 13} />
-          {on ? t('power.on', lang) : t('power.off', lang)}
-        </span>
-      </button>
+      {/* SYSTEM [ON/OFF] on the left, MODE [AUT|MAN] to its right — one row,
+          so the two controls that belong together read together. */}
+      <div className="power-controls">
+        <div className="power-row">
+          {showLabel && <span className="power-switch-label">{t('power.system', lang)}</span>}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            aria-label={actionLabel}
+            title={canControl ? actionLabel : t('power.locked', lang)}
+            className={`power-switch ${on ? 'on' : 'off'} ${small ? 'small' : ''}`}
+            data-device-id={device.id}
+            data-power={on ? 'on' : 'off'}
+            data-mode={mode}
+            disabled={!canFlip}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!manual) return; // AUT: the system switches the heater itself
+              if (on) setConfirmOff(true);
+              else apply(true);
+            }}
+          >
+            <span className="power-switch-track" aria-hidden="true"><span className="power-switch-knob" /></span>
+            <span className="power-switch-state">
+              <Icon name="power" size={small ? 12 : 13} />
+              {manual ? (on ? t('power.on', lang) : t('power.off', lang)) : t('mode.auto', lang)}
+            </span>
+          </button>
+        </div>
+        <div className="mode-row">
+          {showLabel && <span className="power-switch-label">{t('mode.label', lang)}</span>}
+          <div className={`mode-options ${small ? 'small' : ''}`} role="group" aria-label={t('mode.group', lang)}>
+            <button
+              type="button"
+              className={`mode-option ${manual ? '' : 'active'}`}
+              aria-pressed={!manual}
+              data-mode-device-id={device.id}
+              data-mode="auto"
+              disabled={!canControl}
+              title={canControl ? t('mode.autoTitle', lang) : t('power.locked', lang)}
+              onClick={(e) => { e.stopPropagation(); setMode('auto'); }}
+            >
+              {t('mode.auto', lang)}
+            </button>
+            <button
+              type="button"
+              className={`mode-option manual-option ${manual ? 'active' : ''}`}
+              aria-pressed={manual}
+              data-mode-device-id={device.id}
+              data-mode="manual"
+              disabled={!canControl}
+              title={canControl ? t('mode.manualTitle', lang) : t('power.locked', lang)}
+              onClick={(e) => { e.stopPropagation(); setMode('manual'); }}
+            >
+              {t('mode.manual', lang)}
+            </button>
+          </div>
+        </div>
+      </div>
       {showStatus && status && (
         <div className={`muted small power-switch-status ${statusKind}`} role="status" style={{ maxWidth: 340 }}>
           {status}
         </div>
       )}
       {heaterLine && <div className="muted small" style={{ maxWidth: 340 }}>{heaterLine}</div>}
-      {showHint && device.powerError && (
+      {manualOnLine && <div className="muted small" style={{ maxWidth: 340 }}>{manualOnLine}</div>}
+      {device.powerError && (
         <div className="small power-switch-status bad" style={{ maxWidth: 340 }}>{device.powerError}</div>
       )}
       {confirmOff && (

@@ -5,7 +5,7 @@ import {
   apiDeviceToVm, createIotApi,
 } from './iot.js';
 import {
-  liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
+  deviceMode, liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
@@ -61,18 +61,102 @@ function reducer(state, action) {
       };
     }
 
+    case 'SET_SYSTEM_MODE': {
+      // The AUT/MAN selector — deliberately separate from the ON/OFF switch,
+      // because the two answer different questions. AUT means the system heats
+      // by itself from the temperature (the firmware's thermostat); MAN means
+      // the operator holds the heater on or off. The MODE is what is remembered
+      // across a flip: switching OFF inside MAN and switching ON again must come
+      // back to MAN, which is exactly what used to snap back to AUT because a
+      // switch-on always sent relay AUTO.
+      const { deviceId, mode } = action;
+      if (mode !== 'auto' && mode !== 'manual') return state;
+      const dev = state.devices.find((d) => d.id === deviceId);
+      if (!dev) return state;
+      const manual = mode === 'manual';
+      // Choosing MAN holds the heater where it is RIGHT NOW, so the mode button
+      // itself never moves the relay — the operator uses the switch for that.
+      // No known relay state defaults to OFF: never a forced heater ON that
+      // nobody asked for.
+      const on = manual ? (action.on === undefined ? dev.heaterOn === true : !!action.on) : false;
+      const at = nowIso();
+      return withAudit(
+        {
+          ...state,
+          devices: state.devices.map((d) => (d.id === deviceId
+            ? {
+              ...d,
+              mode,
+              modeSetByUser: true,
+              modeSetAt: at,
+              modeIntent: mode,
+              modeIntentAt: at,
+              modePending: !!d.live,
+              modeUnconfirmed: false,
+              // A new selection restarts the re-send budget.
+              powerRetries: 0,
+              powerRetryAt: null,
+              powerError: null,
+              ...(manual
+                ? {
+                  powerIntent: on ? 'on' : 'off',
+                  powerIntentAt: at,
+                  powerSetByUser: true,
+                  powerSetAt: at,
+                  powerPending: !!d.live,
+                  powerUnconfirmed: false,
+                  systemOn: on,
+                  // A manual OFF must not show as heating; a live unit keeps
+                  // reporting its own relay state either way.
+                  heaterOn: d.live ? d.heaterOn : on,
+                }
+                : {
+                  // AUT: the thermostat owns the heater, so no manual command
+                  // stands any more and the system is running by itself.
+                  powerIntent: null,
+                  powerSetByUser: false,
+                  powerPending: false,
+                  powerUnconfirmed: false,
+                  systemOn: true,
+                }),
+            }
+            : d)),
+        },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: 'system.mode',
+          // A card with no unit behind it (the demo fleet, or a device the
+          // control server does not know) must not write a hardware-sounding
+          // audit line: nothing was sent anywhere.
+          details: (liveConfig.enabled && dev.live !== true)
+            ? `${deviceId} demo system set to ${manual ? 'MAN (manual)' : 'AUT (automatic)'} — no unit connected, nothing was sent`
+            : `${deviceId} control mode set to ${manual
+              ? `MAN (manual — heater held ${on ? 'ON' : 'OFF'})`
+              : 'AUT (relay AUTO — the thermostat decides)'}`,
+          prev: { mode: deviceMode(dev) },
+          next: { mode },
+        }
+      );
+    }
+
     case 'SET_SYSTEM_POWER': {
       // Master ON/OFF switch for one Broodiinnox system (farmer or supervisor).
       // The firmware has no "power down the ESP32" topic — a unit that is off
       // cannot be switched back on remotely — so the switch drives the relay:
-      // ON resumes automatic heating, OFF forces the heater off while the unit
-      // keeps reporting. `powerIntent` records what was commanded; the unit's
-      // own `manual_control` report is what confirms it (and re-sends it if a
-      // reboot drops it), so the switch can never claim a state the hardware
-      // is not in.
+      // inside MAN, ON holds the heater on and OFF holds it off, while the unit
+      // keeps reporting so it can always be switched back. `powerIntent` records
+      // what was commanded; the unit's own `manual_control` + `relay_state`
+      // report is what confirms it (and re-sends it if a reboot drops it), so
+      // the switch can never claim a state the hardware is not in.
+      //
+      // In AUT the system switches the heater itself, so the command is refused
+      // here as well as being disabled in the UI: a switch that cannot be obeyed
+      // must not be recorded as if it had been.
       const { deviceId, on } = action;
       const dev = state.devices.find((d) => d.id === deviceId);
       if (!dev) return state;
+      if (deviceMode(dev) !== 'manual') return state;
       const powerOn = !!on;
       return withAudit(
         {
@@ -90,9 +174,10 @@ function reducer(state, action) {
               powerError: null,
               powerRetries: 0,
               powerRetryAt: null,
-              // A switched-off system must not show as heating. Real (live)
-              // devices keep reporting their own relay state instead.
-              heaterOn: d.live ? d.heaterOn : (powerOn ? d.heaterOn : false),
+              // MAN ON holds the heater ON and MAN OFF holds it OFF, so a
+              // simulated system follows the switch. A real (live) device keeps
+              // reporting its own relay state instead.
+              heaterOn: d.live ? d.heaterOn : powerOn,
             }
             : d)),
         },
@@ -100,12 +185,9 @@ function reducer(state, action) {
           user: state.session?.name,
           role: state.session?.role,
           action: powerOn ? 'system.on' : 'system.off',
-          // A card with no unit behind it (the demo fleet, or a device the
-          // control server does not know) must not write a hardware-sounding
-          // audit line: nothing was sent anywhere.
           details: (liveConfig.enabled && dev.live !== true)
             ? `${deviceId} demo system toggled ${powerOn ? 'ON' : 'OFF'} — no unit connected, nothing was sent`
-            : `${deviceId} system switched ${powerOn ? 'ON (relay AUTO)' : 'OFF (relay OFF)'}`,
+            : `${deviceId} system switched ${powerOn ? 'ON (MAN, relay ON)' : 'OFF (MAN, relay OFF)'}`,
           prev: { systemOn: dev.systemOn !== false },
           next: { systemOn: powerOn },
         }
@@ -125,13 +207,19 @@ function reducer(state, action) {
         };
       }
       // Refused or not published (device LOCKED, bridge down…): drop the
-      // command so the switch shows the unit's real state again, and say why
-      // instead of leaving a switch that silently does nothing.
+      // command so the selector and the switch show the unit's real state again,
+      // and say why instead of leaving controls that silently do nothing.
       return {
         ...state,
         devices: state.devices.map((d) => (d.id === deviceId
           ? {
             ...d,
+            // Back to what the UNIT reports — the only mode we can vouch for.
+            mode: d.manual === true ? 'manual' : 'auto',
+            modeIntent: null,
+            modeSetByUser: false,
+            modePending: false,
+            modeUnconfirmed: false,
             powerIntent: null,
             powerSetByUser: false,
             powerPending: false,
@@ -139,11 +227,13 @@ function reducer(state, action) {
             powerRetries: 0,
             powerRetryAt: null,
             powerError: error || 'The unit did not accept the command.',
-            systemOn: !(d.manual === true && d.heaterOn === false),
+            systemOn: d.manual === true ? d.heaterOn !== false : true,
           }
           : d)),
         toast: {
-          msg: `Could not switch ${dev.name || deviceId}: ${error || 'the unit did not accept the command'}`,
+          msg: action.what === 'SET_SYSTEM_MODE'
+            ? `Could not change the mode of ${dev.name || deviceId}: ${error || 'the unit did not accept the command'}`
+            : `Could not switch ${dev.name || deviceId}: ${error || 'the unit did not accept the command'}`,
           kind: 'error',
           at: Date.now(),
         },
@@ -479,8 +569,12 @@ function tick(state) {
       return { ...s, lastReading: Math.round(wander * 10) / 10 };
     });
     const avg = avgTemp(sensors);
-    // A system the user switched off stays off in the simulation too.
-    const heaterOn = dev.systemOn === false ? false : heaterDecision(avg, min, max, dev.heaterOn);
+    // MAN holds the heater exactly where the operator put it (the firmware does
+    // the same: manual_relay_control short-circuits the thermostat), AUT lets it
+    // follow the target band, and a system switched off stays off.
+    const heaterOn = deviceMode(dev) === 'manual'
+      ? (dev.systemOn === false ? false : dev.heaterOn === true)
+      : (dev.systemOn === false ? false : heaterDecision(avg, min, max, dev.heaterOn));
     return { ...dev, sensors, heaterOn, lastSeen: now, day, targets: { min, max } };
   });
 
@@ -680,10 +774,10 @@ export function StoreProvider({ children }) {
     }
     const dev = action?.deviceId ? st.devices.find((d) => d.id === action.deviceId) : null;
 
-    // The master switch is the one control the operator must be able to trust:
-    // report a refusal (locked device, bridge down) instead of leaving a switch
-    // that silently does nothing.
-    if (action?.type === 'SET_SYSTEM_POWER') {
+    // The mode selector and the master switch are the two controls the operator
+    // must be able to trust: report a refusal (locked device, bridge down)
+    // instead of leaving controls that silently do nothing.
+    if (action?.type === 'SET_SYSTEM_POWER' || action?.type === 'SET_SYSTEM_MODE') {
       for (const c of liveCommandPlan(action, dev)) {
         api.sendCommand(action.deviceId, c.command, c.value)
           .then(() => dispatch({ type: 'POWER_COMMAND_RESULT', deviceId: action.deviceId, ok: true }))
@@ -691,6 +785,7 @@ export function StoreProvider({ children }) {
             type: 'POWER_COMMAND_RESULT',
             deviceId: action.deviceId,
             ok: false,
+            what: action.type,
             error: err?.message,
           }));
       }

@@ -114,12 +114,19 @@ async function flushPoll() {
   await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
 }
 
-/** The switch rendered for one device id, wherever on the page it is. */
+/** The switch and the mode selector rendered for one device id. */
 const switchFor = (id) => document.querySelector(`[data-device-id="${id}"]`);
-const statusOf = (id) => switchFor(id)?.parentElement?.querySelector('.power-switch-status')?.textContent || '';
+const modeFor = (id, mode) => document.querySelector(`[data-mode-device-id="${id}"][data-mode="${mode}"]`);
+const statusOf = (id) => switchFor(id)?.closest('.power-switch-wrap')?.querySelector('.power-switch-status')?.textContent || '';
 
-/** Flip the switch off and confirm the danger dialog, as the user does. */
+/** Choose AUT or MAN, as the user does. */
+async function selectMode(id, mode) {
+  await act(async () => { fireEvent.click(modeFor(id, mode)); });
+}
+
+/** Put the system in MAN, then flip the switch off, confirming the dialog. */
 async function flipOff(id) {
+  await selectMode(id, 'manual');
   await act(async () => { fireEvent.click(switchFor(id)); });
   await act(async () => { fireEvent.click(screen.getByText('Yes, switch off')); });
 }
@@ -137,18 +144,31 @@ async function renderFarmerSystems() {
 }
 
 describe('the system switch on the pages the user actually opens', () => {
-  it('farmer → My systems: the real unit\'s switch publishes relay OFF to the API', async () => {
+  it('farmer → My systems: the real unit\'s switch publishes relay ON then OFF to the API', async () => {
     seedWithSession(FARMER);
     await renderFarmerSystems();
 
     const sw = switchFor('BROODIINNOX-001');
     expect(sw, 'the real unit is missing from the farmer\'s systems').toBeTruthy();
-    expect(sw.getAttribute('aria-checked')).toBe('true');
-    expect(sw.disabled).toBe(false);
 
-    await flipOff('BROODIINNOX-001');
-    expect(commands().map((c) => c.body)).toEqual([{ command: 'relay', value: 'OFF' }]);
+    // The unit reports AUT: the system switches the heater itself, so the
+    // switch is disabled until the operator takes it over.
+    expect(modeFor('BROODIINNOX-001', 'auto').getAttribute('aria-pressed')).toBe('true');
+    expect(sw.disabled).toBe(true);
+    expect(sw.textContent).toContain('AUT');
+
+    // MAN takes the heater over in the state the unit reports (heater on =
+    // relay_state true), so the FIRST command is relay ON — never relay AUTO.
+    await selectMode('BROODIINNOX-001', 'manual');
+    expect(commands().map((c) => c.body)).toEqual([{ command: 'relay', value: 'ON' }]);
+    expect(switchFor('BROODIINNOX-001').disabled).toBe(false);
+
+    const afterMode = commands().length;
+    await act(async () => { fireEvent.click(switchFor('BROODIINNOX-001')); });
+    await act(async () => { fireEvent.click(screen.getByText('Yes, switch off')); });
+    expect(commands().slice(afterMode).map((c) => c.body)).toEqual([{ command: 'relay', value: 'OFF' }]);
     expect(switchFor('BROODIINNOX-001').getAttribute('aria-checked')).toBe('false');
+    expect(commands().some((c) => c.body.value === 'AUTO')).toBe(false);
   });
 
   it('farmer → My systems: the real unit is shown even with no local registration', async () => {
@@ -159,10 +179,13 @@ describe('the system switch on the pages the user actually opens', () => {
 
     expect(switchFor('BROODIINNOX-001')).toBeTruthy();
     await flipOff('BROODIINNOX-001');
-    expect(commands().map((c) => c.body)).toEqual([{ command: 'relay', value: 'OFF' }]);
+    expect(commands().map((c) => c.body)).toEqual([
+      { command: 'relay', value: 'ON' },   // MAN takes the heater over as it is
+      { command: 'relay', value: 'OFF' },  // then the operator switches it off
+    ]);
   });
 
-  it('farmer → system detail: flipping the switch publishes relay OFF to the API', async () => {
+  it('farmer → system detail: flipping the switch publishes relay ON then OFF to the API', async () => {
     const { default: SystemDetail } = await import('../pages/farmer/SystemDetail.jsx');
     seedWithSession(FARMER);
     render(
@@ -176,10 +199,13 @@ describe('the system switch on the pages the user actually opens', () => {
 
     expect(switchFor('BROODIINNOX-001')).toBeTruthy();
     await flipOff('BROODIINNOX-001');
-    expect(commands().map((c) => c.body)).toEqual([{ command: 'relay', value: 'OFF' }]);
+    expect(commands().map((c) => c.body)).toEqual([
+      { command: 'relay', value: 'ON' },
+      { command: 'relay', value: 'OFF' },
+    ]);
   });
 
-  it('admin → Devices: flipping the row switch publishes relay OFF to the API', async () => {
+  it('admin → Devices: flipping the row switch publishes relay ON then OFF to the API', async () => {
     const { default: AdminDevices } = await import('../pages/admin/Devices.jsx');
     seedWithSession(ADMIN);
     render(
@@ -193,7 +219,10 @@ describe('the system switch on the pages the user actually opens', () => {
 
     expect(switchFor('BROODIINNOX-001')).toBeTruthy();
     await flipOff('BROODIINNOX-001');
-    expect(commands().map((c) => c.body)).toEqual([{ command: 'relay', value: 'OFF' }]);
+    expect(commands().map((c) => c.body)).toEqual([
+      { command: 'relay', value: 'ON' },
+      { command: 'relay', value: 'OFF' },
+    ]);
   });
 });
 
@@ -206,9 +235,10 @@ describe('a switch with no unit behind it says so', () => {
     expect(demo).toBeTruthy();
     expect(statusOf('BRD001')).toMatch(/Demo system/i);
 
+    await act(async () => { fireEvent.click(modeFor('BRD001', 'manual')); });
     await flipOff('BRD001');
     expect(commands()).toEqual([]); // nothing was published anywhere
-    expect(switchFor('BRD001').parentElement.textContent).toMatch(/Demo system/i);
+    expect(switchFor('BRD001').closest('.power-switch-wrap').textContent).toMatch(/Demo system/i);
   });
 
   it('the switch itself reports that the control server is unreachable', async () => {

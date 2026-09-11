@@ -192,6 +192,26 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 .power-switch.small .power-switch-knob { width: 13px; height: 13px; }
 .power-switch.small.on .power-switch-knob { transform: translateX(15px); }
 
+/* ===== AUT/MAN mode selector ===== */
+/* The System switch and the Mode selector sit side by side — SYSTEM [ON/OFF]
+   then MODE [AUT|MAN] — and wrap onto separate lines in a narrow card. */
+.power-controls { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.power-switch-wrap.small .power-controls { gap: 8px; }
+.mode-row, .power-row { display: inline-flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.mode-options {
+  display: inline-flex; align-items: stretch; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px;
+}
+.mode-option {
+  border: 0; background: transparent; color: var(--text-muted); font-family: inherit;
+  font-weight: 800; font-size: 11.5px; letter-spacing: 0.5px; padding: 5px 13px; cursor: pointer;
+}
+.mode-option:hover { background: var(--surface-2); }
+.mode-option:disabled { opacity: 0.5; cursor: not-allowed; }
+.mode-option.active { background: var(--brand-blue); color: #fff; }
+.mode-option.manual-option.active { background: var(--warn); color: #16181d; }
+.mode-options.small .mode-option { font-size: 10.5px; padding: 3px 10px; }
+
 /* ===== forms ===== */
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 

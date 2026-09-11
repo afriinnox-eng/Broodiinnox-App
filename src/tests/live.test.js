@@ -3,8 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  POWER_MAX_REASSERTS, deviceDisplayName, liveCommandPlan, liveVmStatus, nearestAnimal,
-  overlayLiveDevice, powerIsStale, powerMatchesIntent, powerReassertPlan, storeDeviceFromVm,
+  POWER_MAX_REASSERTS, deviceDisplayName, liveCommandPlan, liveVmStatus, modeMatchesIntent,
+  nearestAnimal, overlayLiveDevice, powerIsStale, powerMatchesIntent, powerReassertPlan, storeDeviceFromVm,
 } from '../lib/live.js';
 
 function vm(patch = {}) {
@@ -151,10 +151,14 @@ describe('storeDeviceFromVm', () => {
     expect(d.baseMax).toBe(50);
   });
 
-  it('reads the master ON/OFF switch out of the reported relay state', () => {
-    expect(storeDeviceFromVm(liveVm(), NOW).systemOn).toBe(true);            // relay follows the thermostat
-    expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: true }), NOW).systemOn).toBe(true);   // forced heating
-    expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: false }), NOW).systemOn).toBe(false); // switched OFF
+  it('reads the control mode and the master switch out of the unit report', () => {
+    // AUT: the system is running and the thermostat owns the heater, whatever
+    // the relay happens to be doing this second.
+    expect(storeDeviceFromVm(liveVm(), NOW)).toMatchObject({ mode: 'auto', systemOn: true });
+    expect(storeDeviceFromVm(liveVm({ heaterOn: false }), NOW).systemOn).toBe(true);
+    // MAN: relay_state is a state somebody chose and holds.
+    expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: true }), NOW)).toMatchObject({ mode: 'manual', systemOn: true });
+    expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: false }), NOW)).toMatchObject({ mode: 'manual', systemOn: false });
   });
 
   it('keeps the owning farmer from the API registration (a farmer must see the real unit)', () => {
@@ -207,11 +211,12 @@ describe('overlayLiveDevice', () => {
   });
 
   it('keeps a switch command the operator just made, and infers it otherwise', () => {
-    // The user switched this unit OFF a moment ago: the app keeps showing that
-    // command — and says whether the unit has confirmed it — but nothing is
-    // frozen, so the switch can never disagree with the hardware for long.
+    // The user put this unit in MAN and switched it OFF a moment ago: the app
+    // keeps showing that selection — and says whether the unit has confirmed it
+    // — but nothing is frozen, so the controls can never disagree with the
+    // hardware for long.
     const commanded = overlayLiveDevice(
-      seedDevice({ systemOn: false, powerIntent: 'off', powerIntentAt: NOW }),
+      seedDevice({ mode: 'manual', modeIntent: 'manual', modeIntentAt: NOW, systemOn: false, powerIntent: 'off', powerIntentAt: NOW }),
       liveVm(),
       NOW
     );
@@ -293,12 +298,25 @@ describe('liveCommandPlan', () => {
       .toEqual([{ command: 'restart', value: 'RESTART' }]);
   });
 
-  it('maps the master switch onto the firmware relay topic, and nothing for mock devices', () => {
-    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false }, live()))
-      .toEqual([{ command: 'relay', value: 'OFF' }]);
-    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: true }, live()))
+  it('maps the mode selector and the master switch onto the firmware relay topic', () => {
+    // AUT hands the heater to the thermostat; MAN takes it, with the heater
+    // held in whichever state the operator is choosing.
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_MODE', deviceId: 'BROODIINNOX-001', mode: 'auto' }, live()))
       .toEqual([{ command: 'relay', value: 'AUTO' }]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_MODE', deviceId: 'BROODIINNOX-001', mode: 'manual', on: true }, live()))
+      .toEqual([{ command: 'relay', value: 'ON' }]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_MODE', deviceId: 'BROODIINNOX-001', mode: 'manual', on: false }, live()))
+      .toEqual([{ command: 'relay', value: 'OFF' }]);
+
+    // The master switch means something inside MAN only — and neither of its
+    // payloads is AUTO, so a flip can never leave the selected mode.
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false }, live({ mode: 'manual' })))
+      .toEqual([{ command: 'relay', value: 'OFF' }]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: true }, live({ mode: 'manual' })))
+      .toEqual([{ command: 'relay', value: 'ON' }]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'BROODIINNOX-001', on: false }, live())).toEqual([]);
     expect(liveCommandPlan({ type: 'SET_SYSTEM_POWER', deviceId: 'brood-1', on: false }, mock)).toEqual([]);
+    expect(liveCommandPlan({ type: 'SET_SYSTEM_MODE', deviceId: 'brood-1', mode: 'manual', on: true }, mock)).toEqual([]);
   });
 });
 
@@ -317,21 +335,36 @@ describe('system power: the unit decides whether the command landed', () => {
   });
   const T0 = Date.parse('2026-09-10T12:00:00.000Z');
   const at = (ms) => new Date(T0 + ms).toISOString();
-  const dropped = vm({ manual: false, heaterOn: true }); // unit back in AUTO, heating
-  const applied = vm({ manual: true, heaterOn: false }); // unit reports manual off
-
-  it('confirms OFF only on manual control with the heater off, and ON on automatic', () => {
-    expect(powerMatchesIntent('off', applied)).toBe(true);
-    expect(powerMatchesIntent('off', vm({ manual: false, heaterOn: false }))).toBe(false);
-    expect(powerMatchesIntent('off', vm({ manual: true, heaterOn: true }))).toBe(false);
-    expect(powerMatchesIntent('on', vm({ manual: false, heaterOn: true }))).toBe(true);
-    expect(powerMatchesIntent('on', applied)).toBe(false);
-    expect(powerMatchesIntent(null, dropped)).toBe(true); // nothing was commanded
+  const dropped = vm({ manual: false, heaterOn: true }); // unit back in AUT (a reboot drops MAN), heating
+  const applied = vm({ manual: true, heaterOn: false }); // unit reports MAN with the heater held off
+  const heldOn = vm({ manual: true, heaterOn: true });   // unit reports MAN with the heater held on
+  /** The device as the operator left it: MAN selected, heater held OFF. */
+  const inManual = (patch = {}) => liveDevice({
+    mode: 'manual', modeIntent: 'manual', modeIntentAt: at(0),
+    powerIntent: 'off', powerIntentAt: at(0), ...patch,
   });
 
-  it('shows the command while it stands, and reads the unit back once it lands', () => {
-    const dev = liveDevice({ powerIntent: 'off', powerIntentAt: at(0) });
+  it('confirms each command against what the unit reports', () => {
+    expect(powerMatchesIntent('off', applied)).toBe(true);
+    expect(powerMatchesIntent('off', vm({ manual: false, heaterOn: false }))).toBe(false);
+    expect(powerMatchesIntent('off', heldOn)).toBe(false);
+    // A system heating by itself in AUT is NOT a system held on.
+    expect(powerMatchesIntent('on', vm({ manual: false, heaterOn: true }))).toBe(false);
+    expect(powerMatchesIntent('on', heldOn)).toBe(true);
+    expect(powerMatchesIntent(null, dropped)).toBe(true); // nothing was commanded
+
+    expect(modeMatchesIntent('manual', applied)).toBe(true);
+    expect(modeMatchesIntent('manual', dropped)).toBe(false);
+    expect(modeMatchesIntent('auto', dropped)).toBe(true);
+    expect(modeMatchesIntent(null, dropped)).toBe(true);
+  });
+
+  it('shows the selection while it stands, and reads the unit back once it lands', () => {
+    const dev = inManual();
     const landed = overlayLiveDevice(dev, applied, at(3000));
+    expect(landed.mode).toBe('manual');
+    expect(landed.modeConfirmed).toBe(true);
+    expect(landed.modePending).toBe(false);
     expect(landed.systemOn).toBe(false);
     expect(landed.powerConfirmed).toBe(true);
     expect(landed.powerPending).toBe(false);
@@ -339,52 +372,68 @@ describe('system power: the unit decides whether the command landed', () => {
 
     // Same id, no command: the unit's own report decides.
     expect(overlayLiveDevice(liveDevice(), dropped, at(0)).systemOn).toBe(true);
+    expect(overlayLiveDevice(liveDevice(), applied, at(0)).mode).toBe('manual');
   });
 
   it('never freezes a command: unconfirmed inside the window, drift after it', () => {
-    const dev = liveDevice({ powerIntent: 'off', powerIntentAt: at(0) });
+    const dev = inManual();
     const within = overlayLiveDevice(dev, dropped, at(5000));
-    expect(within.systemOn).toBe(false); // the farmer's OFF is still shown
+    expect(within.mode).toBe('manual'); // the farmer's MAN is still shown
+    expect(within.modePending).toBe(true);
+    expect(within.systemOn).toBe(false); // and the OFF inside it
     expect(within.powerPending).toBe(true);
     expect(within.powerUnconfirmed).toBe(false);
 
     const after = overlayLiveDevice(dev, dropped, at(25000));
+    expect(after.modePending).toBe(false);
+    expect(after.modeUnconfirmed).toBe(true);
+    expect(after.mode).toBe('auto'); // the hardware has the last word
+    expect(after.systemOn).toBe(true);
+    // ... and with the mode gone, the heater command inside it goes too: there
+    // is no manual command to be unconfirmed in AUT.
+    expect(after.powerIntent).toBeNull();
     expect(after.powerPending).toBe(false);
-    expect(after.powerUnconfirmed).toBe(true);
+    expect(after.powerUnconfirmed).toBe(false);
     expect(powerIsStale(dev, at(25000))).toBe(true);
     expect(powerIsStale(dev, at(5000))).toBe(false);
     expect(powerIsStale(liveDevice(), at(0))).toBe(false); // nothing commanded
   });
 
   it('re-sends a dropped OFF, throttled to one attempt per interval and capped', () => {
-    const dev = liveDevice({ powerIntent: 'off', powerIntentAt: at(0) });
+    const dev = inManual();
     expect(powerReassertPlan(dev, dropped, at(25000))).toBeNull(); // inside the grace window
     expect(powerReassertPlan(dev, dropped, at(35000))).toEqual({ command: 'relay', value: 'OFF' });
     expect(powerReassertPlan(dev, applied, at(35000))).toBeNull(); // unit already agrees
 
-    const sent = liveDevice({ powerIntent: 'off', powerIntentAt: at(0), powerRetries: 1, powerRetryAt: at(35000) });
+    const sent = inManual({ powerRetries: 1, powerRetryAt: at(35000) });
     expect(powerReassertPlan(sent, dropped, at(45000))).toBeNull(); // too soon after the last attempt
     expect(powerReassertPlan(sent, dropped, at(70000))).toEqual({ command: 'relay', value: 'OFF' });
 
-    const exhausted = liveDevice({
-      powerIntent: 'off', powerIntentAt: at(0), powerRetries: POWER_MAX_REASSERTS, powerRetryAt: at(0),
-    });
+    const exhausted = inManual({ powerRetries: POWER_MAX_REASSERTS, powerRetryAt: at(0) });
     expect(powerReassertPlan(exhausted, dropped, at(600000))).toBeNull();
   });
 
-  it('re-sends ON as AUTO, and never talks to a locked, silent or mock device', () => {
-    const on = liveDevice({ powerIntent: 'on', powerIntentAt: at(0) });
-    expect(powerReassertPlan(on, applied, at(35000))).toEqual({ command: 'relay', value: 'AUTO' });
+  it('re-sends the SELECTION, and never talks to a locked, silent or mock device', () => {
+    // MAN with the heater held ON: re-send relay ON, never AUTO.
+    expect(powerReassertPlan(inManual({ powerIntent: 'on' }), dropped, at(35000)))
+      .toEqual({ command: 'relay', value: 'ON' });
+    // MAN with the heater held OFF, and the thermostat heated it again.
+    expect(powerReassertPlan(inManual(), heldOn, at(35000))).toEqual({ command: 'relay', value: 'OFF' });
+    // AUT selected while the unit is still in MAN: hand it back to the thermostat.
+    const auto = liveDevice({ mode: 'auto', modeIntent: 'auto', modeIntentAt: at(0) });
+    expect(powerReassertPlan(auto, heldOn, at(35000))).toEqual({ command: 'relay', value: 'AUTO' });
+    expect(powerReassertPlan(auto, dropped, at(35000))).toBeNull();
 
-    const locked = liveDevice({ powerIntent: 'off', powerIntentAt: at(0), manualLock: true });
+    // A device nobody selected anything on is never told anything.
+    expect(powerReassertPlan(liveDevice({ powerIntentAt: at(0) }), dropped, at(35000))).toBeNull();
+
+    const locked = inManual({ manualLock: true });
     expect(powerReassertPlan(locked, dropped, at(35000))).toBeNull();
 
-    const silent = liveDevice({ powerIntent: 'off', powerIntentAt: at(0), lastSeen: at(-600000) });
+    const silent = inManual({ lastSeen: at(-600000) });
     expect(powerReassertPlan(silent, dropped, at(35000))).toBeNull();
 
-    const mockDevice = liveDevice({ live: false, powerIntent: 'off', powerIntentAt: at(0) });
+    const mockDevice = inManual({ live: false });
     expect(powerReassertPlan(mockDevice, dropped, at(35000))).toBeNull();
-
-    expect(powerReassertPlan(liveDevice({ powerIntentAt: at(0) }), dropped, at(35000))).toBeNull();
   });
 });
