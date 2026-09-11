@@ -144,6 +144,8 @@ async function renderFarmerSystems() {
 }
 
 describe('the system switch on the pages the user actually opens', () => {
+  // These drive the live poll through real timers, so their runtime tracks
+  // machine load (2s alone, over 5s with the whole suite running).
   it('farmer → My systems: the real unit\'s switch publishes relay ON then OFF to the API', async () => {
     seedWithSession(FARMER);
     await renderFarmerSystems();
@@ -169,7 +171,7 @@ describe('the system switch on the pages the user actually opens', () => {
     expect(commands().slice(afterMode).map((c) => c.body)).toEqual([{ command: 'relay', value: 'OFF' }]);
     expect(switchFor('BROODIINNOX-001').getAttribute('aria-checked')).toBe('false');
     expect(commands().some((c) => c.body.value === 'AUTO')).toBe(false);
-  });
+  }, 20000);
 
   it('farmer → My systems: the real unit is shown even with no local registration', async () => {
     // The API registration carries the owner; the browser does not have to
@@ -183,7 +185,7 @@ describe('the system switch on the pages the user actually opens', () => {
       { command: 'relay', value: 'ON' },   // MAN takes the heater over as it is
       { command: 'relay', value: 'OFF' },  // then the operator switches it off
     ]);
-  });
+  }, 20000);
 
   it('farmer → system detail: flipping the switch publishes relay ON then OFF to the API', async () => {
     const { default: SystemDetail } = await import('../pages/farmer/SystemDetail.jsx');

@@ -206,6 +206,87 @@ if (!saysInstall) fail('the no-farm-size message does not say where the farm siz
 if (adminPath) fail('the farmer-facing message still walks the user through the admin console');
 
 win2.close();
+
+/* 11. the price list, end to end on the assembled bundle: the ADMIN types a new
+       price into the list, and the FARMER — a second boot of the same bundle —
+       is shown that price and quoted it. */
+function waiter(win, doc, label) {
+  return async (fn, ms = 8000) => {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      const out = fn();
+      if (out) return out;
+      if (Date.now() > deadline) {
+        const cells = doc.querySelectorAll('input.cell-input').length;
+        const crashed = /Something went wrong on this page/.test(doc.body.textContent);
+        fail(`timed out waiting for ${label} at ${win.location.hash} (price cells on screen: ${cells}, page crashed: ${crashed}, text: ${JSON.stringify(doc.body.textContent.slice(0, 200))})`);
+      }
+      await sleep(25);
+    }
+  };
+}
+/** React tracks the last value it set: go through the native setter, then fire input. */
+function typeInto(win, el, value) {
+  const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+  desc.set.call(el, value);
+  el.dispatchEvent(new win.Event('input', { bubbles: true }));
+}
+
+const adminSession = { id: 'a1', name: 'Innocent Ingabire', role: 'admin', adminRole: 'super', email: 'admin@afriinnox.com' };
+const appState = JSON.parse(window.localStorage.getItem('broodiinnox_app_v1'));
+const boot = (hash, state) => {
+  const dom = new JSDOM(html, {
+    url: `${base}${hash}`,
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    virtualConsole: vc,
+    beforeParse: (w) => w.localStorage.setItem('broodiinnox_app_v1', JSON.stringify(state)),
+  });
+  dom.window.fetch = () => Promise.reject(new Error('offline in verification'));
+  dom.window.eval(code);
+  return dom;
+};
+
+const dom3 = boot('#/admin/subscriptions', { ...appState, session: adminSession });
+const win3 = dom3.window;
+const doc3 = win3.document;
+const wait3 = waiter(win3, doc3, 'the admin price list');
+const CELL_LABEL = '30-Day Plan — 1,000–1,199 chicks';
+const cellFor = (doc) => [...doc.querySelectorAll('input.cell-input')]
+  .find((i) => i.getAttribute('aria-label') === CELL_LABEL) || null;
+await wait3(() => doc3.querySelectorAll('input.cell-input').length);
+console.log('[bundle] the admin price list rendered with', doc3.querySelectorAll('input.cell-input').length, 'editable cells');
+const cell = await wait3(() => cellFor(doc3));
+const before = cell.value;
+// focus first: the cell saves on blur, and blur() does nothing to an unfocused
+// element, so React's onBlur would never fire
+cell.focus();
+typeInto(win3, cell, '60000');
+cell.blur();
+const committed = await wait3(
+  (() => { try { return cellFor(doc3)?.value === '60000' && JSON.parse(win3.localStorage.getItem('broodiinnox_app_v1')).sheet.bands.find((b) => b.id === 'b06').prices.t30d === 60000; } catch { return false; } }),
+);
+const editedState = JSON.parse(win3.localStorage.getItem('broodiinnox_app_v1'));
+const saved = editedState.sheet.bands.find((b) => b.id === 'b06').prices.t30d;
+console.log(`[bundle] admin edited the list: 30-Day at 1,000–1,199 chicks ${before} -> ${saved}, saved by ${editedState.sheet.updatedBy}`);
+if (saved !== 60000) fail('the admin\'s edit was not saved to the price list');
+win3.close();
+
+const dom4 = boot('#/farmer/subscriptions', { ...editedState, session: appState.session });
+const win4 = dom4.window;
+const doc4 = win4.document;
+const wait4 = waiter(win4, doc4, 'the farmer subscription page');
+const planText = async () => (await wait4(() => {
+  const tables = [...doc4.querySelectorAll('.table-wrap table')].filter((t) => /Your price/.test(t.textContent));
+  return tables.length ? tables.map((t) => t.textContent).join(' ') : null;
+}));
+const shown = await planText();
+const paysNew = /RWF 60,000/.test(shown);
+const paysOld = /RWF 52,800/.test(shown);
+console.log(`[bundle] the farmer, on the same bundle: shows the edited price=${paysNew}, still shows the old one=${paysOld}`);
+if (!paysNew || paysOld) fail('the farmer does not see the price the admin published on the price list');
+win4.close();
+
 window.close();
 server.close();
 process.exit(0);

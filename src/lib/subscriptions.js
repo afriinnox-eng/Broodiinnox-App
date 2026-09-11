@@ -194,6 +194,215 @@ export function farmSizeIsEstimated(device) {
 }
 
 /* ------------------------------------------------------------------ */
+/* The price sheet as DATA — what the admin console edits              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The published sheet as editable data: one row per farm size, one price per
+ * plan in that row, plus the size label the row is shown under.
+ *
+ * BANDS/TERMS above stay the published SHEET OF RECORD — the numbers the PDF
+ * prints, and what `publishedSheet()` rebuilds and what "Reset" restores. What
+ * the app shows and charges is `state.sheet`, which starts as this and can be
+ * edited in the admin console.
+ *
+ * A cell is a number (the price in RWF), or null for "Customized": the sheet
+ * quotes nothing for that pair and the app must never invent one. A cell that
+ * is ABSENT is different from null — it means the sheet has no opinion (a plan
+ * created after the sheet was published), and the price falls back to the
+ * row's reference price times that plan's multiplier.
+ */
+export const SHEET_SOURCE = 'Broodiinnox_Prices_Subscription.pdf';
+
+/** The largest price the sheet will accept, in RWF — above this is a typo. */
+export const MAX_PRICE = 100000000;
+
+export function publishedSheet() {
+  return {
+    source: SHEET_SOURCE,
+    updatedAt: null,
+    updatedBy: null,
+    bands: BANDS.map((b) => ({
+      id: b.id,
+      min: b.min,
+      max: b.max,
+      label: bandLabel(b),
+      prices: Object.fromEntries(TERMS.map((t) => [t.id, priceFor(b, t)])),
+    })),
+  };
+}
+
+function isSheetBand(v) {
+  return !!v && typeof v === 'object'
+    && typeof v.id === 'string'
+    && Number.isInteger(v.min) && v.min >= 1
+    && (v.max === null || (Number.isInteger(v.max) && v.max >= v.min))
+    && typeof v.label === 'string'
+    && !!v.prices && typeof v.prices === 'object' && !Array.isArray(v.prices);
+}
+
+/** A sheet that is missing or half-built falls back to the published one. */
+export function sheetOf(sheet) {
+  const bands = Array.isArray(sheet?.bands) ? sheet.bands.filter(isSheetBand) : [];
+  return bands.length === BANDS.length ? { ...sheet, bands } : publishedSheet();
+}
+
+export function sheetBands(sheet) {
+  return sheetOf(sheet).bands;
+}
+
+export function sheetBandById(sheet, bandId) {
+  return sheetBands(sheet).find((b) => b.id === bandId) || null;
+}
+
+/** The band a farm falls in, under the sheet as the admin has it right now. */
+export function sheetBandForChicks(sheet, chicks) {
+  if (typeof chicks !== 'number' || !Number.isInteger(chicks) || chicks < 1) return null;
+  return sheetBands(sheet).find((b) => chicks >= b.min && (b.max === null || chicks <= b.max)) || null;
+}
+
+/** The row's label, however the admin renamed it. */
+export function sheetBandLabel(sheet, band) {
+  const b = typeof band === 'object' && band !== null ? band : sheetBandById(sheet, band);
+  if (!b) return '';
+  return typeof b.label === 'string' && b.label.trim() !== '' ? b.label : bandLabel(b);
+}
+
+/** True when the row quotes at least one price, rather than "Customized". */
+export function sheetBandIsPriced(sheet, band) {
+  const b = typeof band === 'object' && band !== null ? band : sheetBandById(sheet, band);
+  if (!b) return false;
+  return Object.values(b.prices || {}).some((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/**
+ * The row's reference price — the 15-Day price the sheet is built on, and what
+ * a plan with no cell of its own is priced as a multiple of.
+ */
+export function sheetBandBase(sheet, band) {
+  const b = typeof band === 'object' && band !== null ? band : sheetBandById(sheet, band);
+  if (!b) return null;
+  const fifteen = b.prices?.[TERMS[0].id];
+  if (typeof fifteen === 'number' && Number.isFinite(fifteen)) return fifteen;
+  const published = bandById(b.id);
+  if (published && bandIsPriced(published)) return published.base;
+  const priced = Object.values(b.prices || {}).filter((v) => typeof v === 'number' && Number.isFinite(v));
+  return priced.length ? Math.min(...priced) : null;
+}
+
+/**
+ * What one plan costs on one farm size, as the sheet stands now. A price the
+ * admin typed wins; a "Customized" cell is null; a plan the sheet has no cell
+ * for is the row's reference price times that plan's multiplier.
+ *
+ * Accepts a plan object (the app's own, with durationDays + multiplier) or just
+ * its id, the way `priceFor` accepts a band or a band id.
+ */
+export function sheetPrice(sheet, band, plan) {
+  const b = typeof band === 'object' && band !== null ? band : sheetBandById(sheet, band);
+  if (!b) return null;
+  const id = typeof plan === 'string' ? plan : plan?.id;
+  const cell = id && b.prices ? b.prices[id] : undefined;
+  if (cell === null) return null;
+  if (typeof cell === 'number') return Number.isFinite(cell) && cell >= 0 ? cell : null;
+  // no cell of its own: a plan created after the list was published is priced
+  // as a multiple of the row's reference price
+  const own = typeof plan?.multiplier === 'number' && plan.multiplier > 0 ? plan.multiplier : null;
+  const published = typeof plan === 'string' ? termById(plan)?.multiplier ?? null : null;
+  const multiplier = own ?? published;
+  const base = sheetBandBase(sheet, b);
+  if (multiplier === null || base === null) return null;
+  const price = Math.round(base * multiplier);
+  return Number.isFinite(price) ? price : null;
+}
+
+/** Every plan priced for one farm size: [{ plan, band, price }]. */
+export function sheetPlansForBand(sheet, band, plans) {
+  const list = Array.isArray(plans) && plans.length ? plans : TERMS;
+  return list.map((plan) => ({ plan, band, price: sheetPrice(sheet, band, plan) }));
+}
+
+/** The plan an id refers to: the app's own plans first, the published terms second. */
+export function planFrom(plans, id) {
+  const list = Array.isArray(plans) ? plans : [];
+  return list.find((p) => p.id === id) || termById(id) || null;
+}
+
+/* ---------------------------- editing ------------------------------ */
+
+/** Why this price cannot be saved, or null when it can. */
+export function priceEditError(price) {
+  if (price === null) return null; // "Customized" — the sheet quotes nothing
+  if (typeof price !== 'number' || !Number.isFinite(price)) return 'A price must be a number, or empty for "Customized".';
+  if (!Number.isInteger(price)) return 'A price must be a whole number of RWF.';
+  if (price < 0) return 'A price cannot be negative.';
+  if (price > MAX_PRICE) return `That price is above the largest the sheet accepts (RWF ${MAX_PRICE.toLocaleString('en-US')}) — check for a typo.`;
+  return null;
+}
+
+/**
+ * Why these bands are not a usable price list, or null when they are.
+ *
+ * Every chick count must fall in exactly ONE band, so the rows have to tile the
+ * range: whole numbers, sorted, starting at 1, each row picking up where the
+ * last one stopped, and only the top row open-ended. A gap would leave a farm
+ * size with no price at all; an overlap would give it two.
+ */
+export function sheetTilingError(bands) {
+  if (!Array.isArray(bands) || bands.length !== BANDS.length) return 'The price list must keep one row per farm size.';
+  if (new Set(bands.map((b) => b.id)).size !== bands.length) return 'Two rows share the same farm size.';
+  const sorted = [...bands].sort((a, b) => a.min - b.min);
+  if (sorted[0].min !== 1) return 'The first row must start at 1 chick.';
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    if (prev.max === null) return `Only the top row can be open-ended — ${sheetBandLabel(null, prev)} has no upper limit.`;
+    if (sorted[i].min !== prev.max + 1) {
+      return `The rows must run without a gap or an overlap: ${sheetBandLabel(null, prev)} ends at ${prev.max.toLocaleString('en-US')}, the next row starts at ${sorted[i].min.toLocaleString('en-US')}.`;
+    }
+  }
+  if (sorted[sorted.length - 1].max !== null) return 'The top row must stay open-ended (16,000+ chicks and above).';
+  return null;
+}
+
+/** Why this edit to one row cannot be saved, or null when it can. */
+export function bandEditError(sheet, bandId, patch = {}) {
+  const band = sheetBandById(sheet, bandId);
+  if (!band) return 'That farm size is not on the sheet.';
+  if (patch.label !== undefined && String(patch.label).trim() === '') return 'A farm size needs a name.';
+  for (const key of ['min', 'max']) {
+    const value = patch[key];
+    if (value === undefined || value === band[key]) continue;
+    if (value === null && key === 'max') continue;
+    if (!Number.isInteger(value) || value < 1) return key === 'min' ? 'The smallest farm size must be a whole number of chicks, at least 1.' : 'The largest farm size must be a whole number of chicks.';
+  }
+  const patched = sheetBands(sheet).map((b) => (b.id === bandId ? { ...b, ...patch } : b));
+  const min = patched.find((b) => b.id === bandId).min;
+  const max = patched.find((b) => b.id === bandId).max;
+  if (max !== null && max < min) return 'The largest farm size cannot be below the smallest.';
+  return sheetTilingError(patched);
+}
+
+/** The sheet with one price changed, or null when the edit is not allowed. */
+export function sheetWithPrice(sheet, bandId, planId, price) {
+  const s = sheetOf(sheet);
+  const band = s.bands.find((b) => b.id === bandId);
+  if (!band || typeof planId !== 'string' || planId === '') return null;
+  if (priceEditError(price) !== null) return null;
+  return { ...s, bands: s.bands.map((b) => (b.id === bandId ? { ...b, prices: { ...b.prices, [planId]: price } } : b)) };
+}
+
+/** The sheet with one row renamed, or re-ranged, or null when that is invalid. */
+export function sheetWithBand(sheet, bandId, patch = {}) {
+  const s = sheetOf(sheet);
+  if (bandEditError(s, bandId, patch) !== null) return null;
+  const next = {};
+  if (patch.label !== undefined) next.label = String(patch.label).trim();
+  if (patch.min !== undefined) next.min = patch.min;
+  if (patch.max !== undefined) next.max = patch.max;
+  return { ...s, bands: s.bands.map((b) => (b.id === bandId ? { ...b, ...next } : b)) };
+}
+
+/* ------------------------------------------------------------------ */
 /* A subscription against the batch it is paying for                   */
 /* ------------------------------------------------------------------ */
 
@@ -235,6 +444,21 @@ export function recommendedTerm(batchDays) {
   const b = asDays(batchDays);
   if (b === null) return null;
   return TERMS.find((t) => t.days >= b) || TERMS[TERMS.length - 1];
+}
+
+/**
+ * The same, over the plans the app actually sells right now — an admin may have
+ * changed a duration — falling back to the published terms.
+ */
+export function recommendedPlan(plans, batchDays) {
+  const b = asDays(batchDays);
+  if (b === null) return null;
+  const list = (Array.isArray(plans) && plans.length ? plans : TERMS)
+    .filter((p) => typeof (p.durationDays ?? p.days) === 'number')
+    .slice()
+    .sort((x, y) => (x.durationDays ?? x.days) - (y.durationDays ?? y.days));
+  if (!list.length) return null;
+  return list.find((p) => (p.durationDays ?? p.days) >= b) || list[list.length - 1];
 }
 
 /**

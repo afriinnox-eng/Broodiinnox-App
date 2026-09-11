@@ -254,6 +254,19 @@ th {
 td { padding: 10px 12px; border-top: 1px solid var(--border); vertical-align: middle; }
 tr:hover td { background: var(--surface-2); }
 
+/* Editable price-list cells: they look like the sheet's own numbers until you
+   touch them, so the list reads as a list and not as a form. */
+.cell-input {
+  width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font-size: 13px; font-family: inherit; font-variant-numeric: tabular-nums;
+}
+.cell-input.name { font-weight: 700; }
+.cell-input.price { text-align: right; min-width: 92px; }
+.cell-input.tiny { width: 72px; padding: 3px 6px; font-size: 12px; text-align: center; }
+.cell-input:hover { border-color: var(--border); background: var(--surface); }
+.cell-input:focus { outline: 2px solid var(--brand-blue-soft); border-color: var(--brand-blue); background: var(--surface); }
+.cell-input::placeholder { color: var(--text-muted); font-style: italic; }
+
 /* ===== modal ===== */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(10, 15, 30, 0.55); display: grid; place-items: center;

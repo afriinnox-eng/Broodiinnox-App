@@ -2,8 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { subscriptionState } from '../../lib/services.js';
 import {
-  BANDS, TERMS, bandLabel, coverageFor, deviceBand, deviceChicks, farmSizeIsEstimated,
-  planFit, plansForBand, priceFor,
+  coverageFor, deviceChicks, farmSizeIsEstimated, planFit, planFrom,
+  sheetBandById, sheetBandForChicks, sheetBandLabel, sheetBands, sheetPlansForBand,
 } from '../../lib/subscriptions.js';
 import { fmtDate, fmtDateTime } from '../../lib/time.js';
 import { Badge, Btn, Card, EmptyState } from '../../components/ui.jsx';
@@ -30,11 +30,16 @@ export default function FarmerSubscriptions() {
   // priced — a system with no farm size recorded yet still has to be able to
   // show the farmer what every plan costs at every size.
   const [showAllPref, setShowAllPref] = useState(null);
-  const noPricedSystem = myDevices.length > 0 && myDevices.every((d) => !deviceBand(d));
+  // The price sheet the admin has published, as it stands right now: every
+  // price AND every farm-size label on this page comes from it, so an edit in
+  // the console is what the farmer sees, with nothing left over in the code.
+  const sheet = state.sheet;
+  const bandOf = (device) => sheetBandForChicks(sheet, deviceChicks(device));
+  const noPricedSystem = myDevices.length > 0 && myDevices.every((d) => !bandOf(d));
   const showAll = showAllPref ?? noPricedSystem;
 
-  const planOf = (id) => state.plans.find((p) => p.id === id) || TERMS.find((x) => x.id === id);
-  const myBands = new Set(myDevices.map((d) => deviceBand(d)?.id).filter(Boolean));
+  const planOf = (id) => planFrom(state.plans, id);
+  const myBands = new Set(myDevices.map((d) => bandOf(d)?.id).filter(Boolean));
 
   const locked = myDevices.filter((d) => subscriptionState(d.subscription?.endDate, now) !== 'active');
   const shortOfBatch = myDevices.filter((d) => {
@@ -52,8 +57,8 @@ export default function FarmerSubscriptions() {
   };
 
   /** What a plan can pay for, in whole cycles of the batch running now. */
-  const capacityLine = (device, termId) => {
-    const fit = planFit(TERMS.find((x) => x.id === termId)?.days, device.batch?.durationDays);
+  const capacityLine = (device, plan) => {
+    const fit = planFit(plan?.durationDays ?? plan?.days, device.batch?.durationDays);
     if (!fit) return '—';
     if (fit.tooShort) return `Too short for one ${fit.batchDays}-day cycle — you would have to extend it`;
     return `${fit.cycles} cycle${fit.cycles === 1 ? '' : 's'} of ${fit.batchDays} days${fit.spareDays ? `, with ${fit.spareDays} days to spare` : ', with nothing to spare'}`;
@@ -92,18 +97,18 @@ export default function FarmerSubscriptions() {
       <div className="grid cols-2">
         {myDevices.map((d) => {
           const sub = d.subscription;
-          const band = deviceBand(d);
+          const band = bandOf(d);
           const chicks = deviceChicks(d);
           const active = sub?.status === 'active' && subscriptionState(sub.endDate, now) === 'active';
           const c = coverageFor(sub, d.batch, now);
-          const plans = plansForBand(band);
-          const subBand = sub?.bandId ? BANDS.find((b) => b.id === sub.bandId) : null;
+          const plans = sheetPlansForBand(sheet, band, state.plans);
+          const subBand = sub?.bandId ? sheetBandById(sheet, sub.bandId) : null;
 
           return (
             <Card key={d.id} title={`${d.name} (${d.serial})`}>
               <div className="muted small">
                 Farm size: <b>{chicks ? `${chicks.toLocaleString('en-US')} chicks` : 'not recorded yet'}</b>
-                {band ? ` · ${bandLabel(band)}` : ''}
+                {band ? ` · ${sheetBandLabel(sheet, band)}` : ''}
                 {farmSizeIsEstimated(d) ? ' (estimated from the batch running now)' : ''}
               </div>
 
@@ -116,7 +121,7 @@ export default function FarmerSubscriptions() {
                       </div>
                       <div className="muted small">
                         Started {fmtDate(sub.startDate)} · expires {fmtDate(sub.endDate)}
-                        {subBand ? ` · bought for ${bandLabel(subBand)}` : ''}
+                        {subBand ? ` · bought for ${sheetBandLabel(sheet, subBand)}` : ''}
                       </div>
                     </>
                   ) : (
@@ -146,7 +151,7 @@ export default function FarmerSubscriptions() {
               {band ? (
                 <>
                   <div className="muted small" style={{ marginTop: 10, fontWeight: 700 }}>
-                    Plans for {bandLabel(band)}
+                    Plans for {sheetBandLabel(sheet, band)}
                   </div>
                   <div className="table-wrap">
                     <table>
@@ -160,21 +165,21 @@ export default function FarmerSubscriptions() {
                         </tr>
                       </thead>
                       <tbody>
-                        {plans.map(({ term, price }) => (
-                          <tr key={term.id}>
+                        {plans.map(({ plan, price }) => (
+                          <tr key={plan.id}>
                             <td>
-                              <b>{term.name}</b>
-                              <div className="muted small">{term.description}</div>
+                              <b>{plan.name}</b>
+                              <div className="muted small">{plan.description}</div>
                             </td>
-                            <td>{term.days}</td>
+                            <td>{plan.durationDays}</td>
                             <td>{price === null ? 'Customized' : fmtMoney(price)}</td>
-                            <td className="muted small">{capacityLine(d, term.id)}</td>
+                            <td className="muted small">{capacityLine(d, plan)}</td>
                             <td>
                               <Btn
                                 small
-                                variant={active && sub?.planId === term.id ? 'primary' : 'green'}
+                                variant={active && sub?.planId === plan.id ? 'primary' : 'green'}
                                 disabled={price === null}
-                                onClick={() => setPayFor({ device: d, planId: term.id })}
+                                onClick={() => setPayFor({ device: d, planId: plan.id })}
                               >
                                 {active ? 'Renew / extend' : 'Choose'}
                               </Btn>
@@ -218,19 +223,18 @@ export default function FarmerSubscriptions() {
             <thead>
               <tr>
                 <th>Farm size (chicks)</th>
-                {TERMS.map((term) => <th key={term.id}>{term.name}</th>)}
+                {state.plans.map((plan) => <th key={plan.id}>{plan.name}</th>)}
               </tr>
             </thead>
             <tbody>
-              {BANDS.map((band) => {
+              {sheetBands(sheet).map((band) => {
                 const mine = myBands.has(band.id);
                 return (
                   <tr key={band.id} style={mine ? { background: 'var(--surface-2)', fontWeight: 700 } : undefined}>
-                    <td>{bandLabel(band)}{mine ? ' · your size' : ''}</td>
-                    {TERMS.map((term) => {
-                      const price = priceFor(band, term);
-                      return <td key={term.id}>{price === null ? 'Customized' : fmtMoney(price)}</td>;
-                    })}
+                    <td>{sheetBandLabel(sheet, band)}{mine ? ' · your size' : ''}</td>
+                    {sheetPlansForBand(sheet, band, state.plans).map(({ plan, price }) => (
+                      <td key={plan.id}>{price === null ? 'Customized' : fmtMoney(price)}</td>
+                    ))}
                   </tr>
                 );
               })}

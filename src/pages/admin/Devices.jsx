@@ -4,7 +4,10 @@ import { useStore } from '../../lib/store.jsx';
 import { deviceStatus, avgTemp } from '../../lib/services.js';
 import { Badge, Btn, Card, DataTable, Field, Modal, StatusBadge } from '../../components/ui.jsx';
 import { PowerSwitch } from '../../components/PowerSwitch.jsx';
-import { bandForChicks, bandLabel, coverageFor, deviceBand, plansForBand, priceFor } from '../../lib/subscriptions.js';
+import {
+  coverageFor, deviceChicks, planFrom, sheetBandById, sheetBandForChicks, sheetBandLabel,
+  sheetPlansForBand, sheetPrice,
+} from '../../lib/subscriptions.js';
 import { fmtDate, timeAgo } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
@@ -53,11 +56,11 @@ export default function AdminDevices() {
           { key: 'farmer', label: 'Farmer', render: (r) => farmerName(r.farmerId) },
           { key: 'location', label: 'Location', render: (r) => `${r.location?.district || '—'}` },
           { key: 'farmSize', label: 'Farm size', render: (r) => {
-            const band = deviceBand(r);
+            const band = sheetBandForChicks(state.sheet, deviceChicks(r));
             return (
               <div>
                 <b>{r.farmSize ? r.farmSize.toLocaleString('en-US') : '—'}</b>
-                <div className="muted small">{band ? bandLabel(band) : 'not set — cannot be priced'}</div>
+                <div className="muted small">{band ? sheetBandLabel(state.sheet, band) : 'not set — cannot be priced'}</div>
               </div>
             );
           } },
@@ -72,15 +75,15 @@ export default function AdminDevices() {
 
       {selected && (
         <DeviceDetail device={selected} farmerName={farmerName(selected.farmerId)} onClose={() => navigate('/admin/devices')}
-          dispatch={dispatch} plans={state.plans} maintenance={state.maintenance} now={now} lang={lang} />
+          dispatch={dispatch} plans={state.plans} sheet={state.sheet} maintenance={state.maintenance} now={now} lang={lang} />
       )}
 
-      {registerOpen && <RegisterDeviceModal dispatch={dispatch} farmers={state.farmers} onClose={() => setRegisterOpen(false)} />}
+      {registerOpen && <RegisterDeviceModal dispatch={dispatch} farmers={state.farmers} plans={state.plans} sheet={state.sheet} onClose={() => setRegisterOpen(false)} />}
     </div>
   );
 }
 
-function DeviceDetail({ device, farmerName, onClose, dispatch, plans, maintenance, now, lang }) {
+function DeviceDetail({ device, farmerName, onClose, dispatch, plans, sheet, maintenance, now, lang }) {
   const avg = avgTemp(device.sensors);
   const maint = maintenance.find((m) => m.deviceId === device.id);
   return (
@@ -94,7 +97,7 @@ function DeviceDetail({ device, farmerName, onClose, dispatch, plans, maintenanc
           <div className="muted small" style={{ marginTop: 8 }}>Installed</div>
           <div>{fmtDate(device.installedAt)} · firmware {device.firmware}</div>
           <div className="muted small" style={{ marginTop: 8 }}>Farm size — max chicks brooded at once</div>
-          <FarmSizeControl device={device} dispatch={dispatch} />
+          <FarmSizeControl device={device} dispatch={dispatch} sheet={sheet} plans={plans} />
         </div>
         <div>
           <div className="muted small">Status</div>
@@ -111,7 +114,7 @@ function DeviceDetail({ device, farmerName, onClose, dispatch, plans, maintenanc
           <div className="muted small" style={{ marginTop: 8 }}>Maintenance</div>
           <div>{maint ? `next ${fmtDate(maint.nextMaintenance)}` : '—'}</div>
           <div className="muted small" style={{ marginTop: 8 }}>Subscription</div>
-          <SubscriptionSummary device={device} plans={plans} now={now} />
+          <SubscriptionSummary device={device} plans={plans} sheet={sheet} now={now} />
           <div className="muted small" style={{ marginTop: 8 }}>System power</div>
           <PowerSwitch device={device} lang={lang} showLabel={false} showHint />
           <div className="btn-row" style={{ marginTop: 12 }}>
@@ -133,7 +136,7 @@ function DeviceDetail({ device, farmerName, onClose, dispatch, plans, maintenanc
   );
 }
 
-function RegisterDeviceModal({ dispatch, farmers, onClose }) {
+function RegisterDeviceModal({ dispatch, farmers, plans: allPlans, sheet, onClose }) {
   const [serial, setSerial] = useState('BRD0');
   const [name, setName] = useState('');
   const [farmerId, setFarmerId] = useState(farmers[0]?.id || '');
@@ -144,8 +147,8 @@ function RegisterDeviceModal({ dispatch, farmers, onClose }) {
 
   const size = Number(farmSize);
   const sizeValid = Number.isInteger(size) && size > 0;
-  const band = bandForChicks(sizeValid ? size : null);
-  const plans = plansForBand(band);
+  const band = sheetBandForChicks(sheet, sizeValid ? size : null);
+  const plans = sheetPlansForBand(sheet, band, allPlans);
   const canSave = serial.trim() !== '' && sizeValid;
 
   const save = () => {
@@ -158,7 +161,7 @@ function RegisterDeviceModal({ dispatch, farmers, onClose }) {
     if (farmerId) dispatch({ type: 'ASSIGN_DEVICE', deviceId: id, farmerId });
     dispatch({
       type: 'TOAST',
-      msg: `Device ${id} registered${band ? ` — priced for ${bandLabel(band)}` : ''}.`,
+      msg: `Device ${id} registered${band ? ` — priced for ${sheetBandLabel(sheet, band)}` : ''}.`,
     });
     onClose();
   };
@@ -181,7 +184,7 @@ function RegisterDeviceModal({ dispatch, farmers, onClose }) {
 
       <div className="muted small" style={{ marginBottom: 10 }}>
         {band
-          ? <>Subscriptions for this farm ({bandLabel(band)}):</>
+          ? <>Subscriptions for this farm ({sheetBandLabel(sheet, band)}):</>
           : sizeValid
             ? 'Above 15,999 chicks — the sheet quotes those individually, so no list price applies.'
             : 'Enter the farm size to see what this farmer will pay.'}
@@ -191,10 +194,10 @@ function RegisterDeviceModal({ dispatch, farmers, onClose }) {
           <table>
             <thead><tr><th>Plan</th><th>Days</th><th>Price</th></tr></thead>
             <tbody>
-              {plans.map(({ term, price }) => (
-                <tr key={term.id}>
-                  <td>{term.name}</td>
-                  <td>{term.days}</td>
+              {plans.map(({ plan, price }) => (
+                <tr key={plan.id}>
+                  <td>{plan.name}</td>
+                  <td>{plan.durationDays}</td>
                   <td>{price === null ? 'Customized' : fmtMoney(price)}</td>
                 </tr>
               ))}
@@ -217,12 +220,13 @@ function RegisterDeviceModal({ dispatch, farmers, onClose }) {
  * calculated from. Changing it prices the plans bought from now on — a
  * subscription already bought keeps the band and price it was sold at.
  */
-function FarmSizeControl({ device, dispatch }) {
+function FarmSizeControl({ device, dispatch, sheet, plans }) {
   const [value, setValue] = useState(String(device.farmSize ?? ''));
   const size = Number(value);
   const valid = Number.isInteger(size) && size > 0;
-  const band = bandForChicks(valid ? size : null);
+  const band = sheetBandForChicks(sheet, valid ? size : null);
   const changed = valid && size !== device.farmSize;
+  const thirtyDay = planFrom(plans, 't30d') || (plans || []).slice().sort((a, b) => a.durationDays - b.durationDays)[2] || null;
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -243,7 +247,7 @@ function FarmSizeControl({ device, dispatch }) {
             dispatch({ type: 'SET_DEVICE_FARM_SIZE', deviceId: device.id, farmSize: size });
             dispatch({
               type: 'TOAST',
-              msg: `${device.serial} farm size set to ${size.toLocaleString('en-US')} chicks — plans are now priced for ${band ? bandLabel(band) : 'a custom quote'}.`,
+              msg: `${device.serial} farm size set to ${size.toLocaleString('en-US')} chicks — plans are now priced for ${band ? sheetBandLabel(sheet, band) : 'a custom quote'}.`,
             });
           }}
         >
@@ -252,7 +256,7 @@ function FarmSizeControl({ device, dispatch }) {
       </div>
       <div className="muted small" style={{ marginTop: 4 }}>
         {band
-          ? `${bandLabel(band)} · the 30-Day plan costs ${fmtMoney(priceFor(band, 't30d'))}`
+          ? `${sheetBandLabel(sheet, band)} · the 30-Day plan costs ${fmtMoney(sheetPrice(sheet, band, thirtyDay))}`
           : valid ? 'Above 15,999 chicks — quoted individually by Afriinnox.' : 'Enter the maximum number of chicks brooded at once.'}
       </div>
     </div>
@@ -260,13 +264,14 @@ function FarmSizeControl({ device, dispatch }) {
 }
 
 /** What this device is paying, and whether the plan reaches the end of its batch. */
-function SubscriptionSummary({ device, plans, now }) {
+function SubscriptionSummary({ device, plans, sheet, now }) {
   const sub = device.subscription;
-  const band = deviceBand(device);
+  const band = sheetBandForChicks(sheet, deviceChicks(device));
+  const fifteen = planFrom(plans, 't15d') || (plans || [])[0] || null;
   if (!sub?.planId) {
     return (
       <div className="muted small">
-        No plan bought yet{band ? ` — plans for ${bandLabel(band)} start at ${fmtMoney(priceFor(band, 't15d'))}` : ''}.
+        No plan bought yet{band ? ` — plans for ${sheetBandLabel(sheet, band)} start at ${fmtMoney(sheetPrice(sheet, band, fifteen))}` : ''}.
       </div>
     );
   }
@@ -276,7 +281,7 @@ function SubscriptionSummary({ device, plans, now }) {
       <div>
         <b>{plans.find((p) => p.id === sub.planId)?.name || sub.planId}</b>
         {typeof sub.price === 'number' ? ` — ${fmtMoney(sub.price)}` : ''}
-        {sub.bandId ? ` · bought for ${bandLabel(c.band)}` : ''}
+        {sub.bandId ? ` · bought for ${sheetBandLabel(sheet, sheetBandById(sheet, sub.bandId) || band)}` : ''}
       </div>
       <div>{c.daysLeft} of {c.paidDays ?? c.termDays} days left · expires {fmtDate(sub.endDate)}</div>
       {c.batchDays ? (

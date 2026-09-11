@@ -12,7 +12,7 @@
  * (BRD002, BRD005) and a long plan paying for several batches in a row (BRD003).
  */
 import { addDays, fmtDate } from './time.js';
-import { TERMS, bandForChicks, priceFor } from './subscriptions.js';
+import { TERMS, bandForChicks, priceFor, publishedSheet } from './subscriptions.js';
 
 function iso(daysFromNow, hour = 9) {
   const d = new Date();
@@ -35,7 +35,8 @@ const termOf = (id) => TERMS.find((t) => t.id === id);
  */
 export const PLANS = TERMS.map((t) => ({
   id: t.id,
-  name: t.name.replace(/ Plan$/, ''),
+  // named exactly as the sheet prints it, so a renamed plan is visibly renamed
+  name: t.name,
   durationDays: t.days,
   multiplier: t.multiplier,
   active: true,
@@ -263,6 +264,8 @@ export function buildSeed() {
     farmers: FARMERS,
     devices: DEVICES,
     plans: PLANS,
+    // The admin console edits this; it starts as the approved sheet.
+    sheet: publishedSheet(),
     payments: PAYMENTS,
     alerts: ALERTS,
     tickets: TICKETS,

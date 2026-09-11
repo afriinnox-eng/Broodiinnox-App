@@ -1,6 +1,8 @@
 import React from 'react';
+import { useStore } from '../lib/store.jsx';
 import {
-  TERMS, bandLabel, coverageFor, deviceBand, planFit, priceFor, recommendedTerm,
+  coverageFor, deviceChicks, planFit, planFrom, recommendedPlan,
+  sheetBandForChicks, sheetBandLabel, sheetPrice,
 } from '../lib/subscriptions.js';
 import { Icon } from './icons.jsx';
 import { fmtMoney } from '../i18n/strings.js';
@@ -15,15 +17,19 @@ import { fmtDate } from '../lib/time.js';
  * unit with the animals still inside.
  */
 export function PlanFitNote({ device, durationDays, startDate }) {
+  const { state } = useStore();
   const now = new Date().toISOString();
   const days = Number(durationDays);
   if (!Number.isInteger(days) || days < 1) return null;
 
-  const band = deviceBand(device);
+  // Priced from the sheet the admin has published, and recommended from the
+  // plans actually on sale — a changed duration moves the recommendation too.
+  const sheet = state.sheet;
+  const band = sheetBandForChicks(sheet, deviceChicks(device));
   const sub = device.subscription;
-  const recommended = recommendedTerm(days);
-  const recommendedPrice = band ? priceFor(band, recommended?.id) : null;
-  const term = sub?.planId ? TERMS.find((t) => t.id === sub.planId) : null;
+  const recommended = recommendedPlan(state.plans, days);
+  const recommendedPrice = band ? sheetPrice(sheet, band, recommended) : null;
+  const term = sub?.planId ? planFrom(state.plans, sub.planId) : null;
 
   // The batch as it would be: its own start date, its own length.
   const prospective = {
@@ -32,7 +38,7 @@ export function PlanFitNote({ device, durationDays, startDate }) {
     durationDays: days,
   };
   const cover = term ? coverageFor(sub, prospective, now) : null;
-  const fit = term ? planFit(term.days, days) : null;
+  const fit = term ? planFit(term.durationDays ?? term.days, days) : null;
   const active = sub?.status === 'active' && !cover?.expired;
 
   return (
@@ -42,7 +48,7 @@ export function PlanFitNote({ device, durationDays, startDate }) {
           <>
             Recommended plan for a {days}-day batch: <b>{recommended.name}</b>
             {recommendedPrice !== null
-              ? ` — ${fmtMoney(recommendedPrice)} for ${bandLabel(band)}`
+              ? ` — ${fmtMoney(recommendedPrice)} for ${sheetBandLabel(sheet, band)}`
               : band ? '' : ' — this system has no farm size recorded, so it cannot be priced yet'}
           </>
         )}

@@ -8,7 +8,9 @@ import {
   deviceMode, liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
-  bandForChicks, bandLabel, coverageFor, deviceBand, deviceChicks, priceFor, termById,
+  SHEET_SOURCE, bandEditError, coverageFor, deviceChicks, planFrom, priceEditError, publishedSheet,
+  sheetBandById, sheetBandForChicks, sheetBandLabel, sheetOf, sheetPrice, sheetWithBand,
+  sheetWithPrice, termById,
 } from './subscriptions.js';
 import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
@@ -350,9 +352,11 @@ function reducer(state, action) {
     case 'REQUEST_PAYMENT': {
       const { farmerId, deviceId, planId, phone } = action;
       const dev = state.devices.find((d) => d.id === deviceId);
-      const term = termById(planId);
-      const band = deviceBand(dev);
-      const amount = priceFor(band, term);
+      const term = planOf(state, planId);
+      // The price is the SHEET's price for this farm size as the admin has it
+      // now — what a farmer is charged is never a separate opinion.
+      const band = sheetBandForChicks(state.sheet, deviceChicks(dev));
+      const amount = sheetPrice(state.sheet, band, term);
       // A plan only has a price against a farm size, and the sheet quotes nothing
       // above 15,999 chicks. Refuse and say why rather than charge a guess.
       if (!dev || !term || amount === null) {
@@ -374,11 +378,11 @@ function reducer(state, action) {
         bandId: band.id, farmSize: deviceChicks(dev), amount,
         method: 'MTN MoMo', status: PAYMENT_STATUS.PENDING,
         providerConfirmed: false, providerRef: null,
-        period: `${term.name} — ${bandLabel(band)}`, createdAt: nowIso(), confirmedAt: null,
+        period: `${planName(term)} — ${sheetBandLabel(state.sheet, band)}`, createdAt: nowIso(), confirmedAt: null,
       };
       return withAudit(
         { ...state, payments: [payment, ...state.payments] },
-        { user: state.session?.name, role: state.session?.role, action: 'payment.request', details: `MoMo payment requested for ${deviceId}: ${term.name} for ${bandLabel(band)} (RWF ${amount})` }
+        { user: state.session?.name, role: state.session?.role, action: 'payment.request', details: `MoMo payment requested for ${deviceId}: ${planName(term)} for ${sheetBandLabel(state.sheet, band)} (RWF ${amount})` }
       );
     }
 
@@ -436,10 +440,74 @@ function reducer(state, action) {
         { user: state.session?.name, role: state.session?.role, action: 'plan.create', details: `Created plan ${action.plan.name}` }
       );
 
-    case 'UPDATE_PLAN':
-      return withAudit(
+    case 'UPDATE_PLAN': {
+      const before = planOf(state, action.id);
+      const updated = withAudit(
         { ...state, plans: state.plans.map((p) => (p.id === action.id ? { ...p, ...action.patch } : p)) },
         { user: state.session?.name, role: state.session?.role, action: 'plan.update', details: `Updated plan ${action.id}` }
+      );
+      // A rename is a price-list change too: every column of the sheet is headed
+      // by this name, so it is worth its own audit line.
+      const after = planOf(updated, action.id);
+      const beforeName = planName(before);
+      if (action.patch?.name !== undefined && planName(after) !== beforeName) {
+        return withAudit(updated, {
+          user: state.session?.name, role: state.session?.role, action: 'plan.rename',
+          details: `Plan renamed ${beforeName} → ${planName(after)}`,
+          prev: { name: beforeName }, next: { name: planName(after) },
+        });
+      }
+      return updated;
+    }
+
+    /* ---- the price sheet itself: the admin edits it, every price reads it ---- */
+
+    case 'SHEET_SET_PRICE': {
+      // Afriinnox owns the price list; a farmer must never reach this.
+      if (state.session?.role !== 'admin') return state;
+      const band = sheetBandById(state.sheet, action.bandId);
+      const plan = planOf(state, action.planId);
+      const reason = !band ? 'That farm size is not on the price list.'
+        : !plan ? 'That plan is not on the price list.'
+          : priceEditError(action.price);
+      const next = reason ? null : sheetWithPrice(state.sheet, action.bandId, action.planId, action.price);
+      if (!next) return { ...state, toast: { msg: reason || 'That price cannot be saved.', kind: 'error', at: Date.now() } };
+      const was = sheetPrice(state.sheet, band, plan);
+      return withAudit(
+        { ...state, sheet: { ...next, updatedAt: nowIso(), updatedBy: state.session?.name || 'admin' } },
+        {
+          user: state.session?.name, role: state.session?.role, action: 'price_sheet.price',
+          details: `${planName(plan)} — ${sheetBandLabel(state.sheet, band)}: ${money(was)} → ${money(action.price)}`,
+          prev: { price: was }, next: { price: action.price },
+        }
+      );
+    }
+
+    case 'SHEET_SET_BAND': {
+      if (state.session?.role !== 'admin') return state;
+      const band = sheetBandById(state.sheet, action.bandId);
+      if (!band) return { ...state, toast: { msg: 'That farm size is not on the price list.', kind: 'error', at: Date.now() } };
+      const patch = action.patch || {};
+      const reason = bandEditError(state.sheet, action.bandId, patch);
+      const next = reason ? null : sheetWithBand(state.sheet, action.bandId, patch);
+      if (!next) return { ...state, toast: { msg: reason || 'That farm size cannot be saved.', kind: 'error', at: Date.now() } };
+      const after = next.bands.find((b) => b.id === action.bandId);
+      return withAudit(
+        { ...state, sheet: { ...next, updatedAt: nowIso(), updatedBy: state.session?.name || 'admin' } },
+        {
+          user: state.session?.name, role: state.session?.role, action: 'price_sheet.size',
+          details: `Farm size ${sheetBandLabel(state.sheet, band)} (${rangeLabel(band)}) → ${sheetBandLabel(next, after)} (${rangeLabel(after)})`,
+          prev: { label: band.label, min: band.min, max: band.max },
+          next: { label: after.label, min: after.min, max: after.max },
+        }
+      );
+    }
+
+    case 'SHEET_RESET':
+      if (state.session?.role !== 'admin') return state;
+      return withAudit(
+        { ...state, sheet: publishedSheet() },
+        { user: state.session?.name, role: state.session?.role, action: 'price_sheet.reset', details: `Price sheet reset to ${SHEET_SOURCE}` }
       );
 
     case 'SET_DEVICE_FARM_SIZE': {
@@ -453,14 +521,14 @@ function reducer(state, action) {
       if (!dev) return state;
       const size = Number.isInteger(farmSize) && farmSize > 0 ? farmSize : null;
       if (size === null) return state;
-      const band = bandForChicks(size);
+      const band = sheetBandForChicks(state.sheet, size);
       return withAudit(
         { ...state, devices: state.devices.map((d) => (d.id === deviceId ? { ...d, farmSize: size } : d)) },
         {
           user: state.session?.name,
           role: state.session?.role,
           action: 'device.farm_size',
-          details: `${deviceId} farm size set to ${size} chicks${band ? ` (${bandLabel(band)})` : ' — above the published price list'}`,
+          details: `${deviceId} farm size set to ${size} chicks${band ? ` (${sheetBandLabel(state.sheet, band)})` : ' — above the published price list'}`,
           prev: { farmSize: dev.farmSize ?? null },
           next: { farmSize: size },
         }
@@ -481,14 +549,14 @@ function reducer(state, action) {
         subscription: { planId: null, bandId: null, price: null, status: 'inactive', startDate: null, endDate: null },
         manualStatus: null,
       };
-      const band = bandForChicks(farmSize);
+      const band = sheetBandForChicks(state.sheet, farmSize);
       return withAudit(
         { ...state, devices: [...state.devices, dev] },
         {
           user: state.session?.name,
           role: state.session?.role,
           action: 'device.register',
-          details: `Registered ${action.serial}${band ? ` — farm size ${farmSize} chicks (${bandLabel(band)})` : ' — farm size not set'}`,
+          details: `Registered ${action.serial}${band ? ` — farm size ${farmSize} chicks (${sheetBandLabel(state.sheet, band)})` : ' — farm size not set'}`,
         }
       );
     }
@@ -649,6 +717,39 @@ function withAudit(state, entry) {
   return { ...state, audit };
 }
 
+/** The plan an id refers to: the app's own plans first, the published terms second. */
+function planOf(state, id) {
+  return planFrom(state.plans, id);
+}
+
+/** How a plan is named everywhere: the name the admin gave it first, the sheet's second. */
+function planName(plan) {
+  const own = typeof plan?.name === 'string' ? plan.name.trim() : '';
+  return own || termById(plan?.id)?.name || '';
+}
+
+/** "1,000–1,199" or "16,000–and above", for the audit line of a re-ranged row. */
+function rangeLabel(band) {
+  return `${band.min.toLocaleString('en-US')}–${band.max === null ? 'and above' : band.max.toLocaleString('en-US')}`;
+}
+
+/** RWF in an audit line: a null cell is the sheet's own word for it. */
+function money(value) {
+  return value === null ? 'Customized' : `RWF ${value.toLocaleString('en-US')}`;
+}
+
+/**
+ * Seeded plans used to drop the trailing " Plan" from the sheet's name; the
+ * sheet prints it, so a plan nobody renamed reads the way the sheet does.
+ */
+function migratePlans(plans) {
+  if (!Array.isArray(plans)) return null;
+  return plans.map((p) => {
+    const published = termById(p.id);
+    return published && p.name === published.name.replace(/ Plan$/, '') ? { ...p, name: published.name } : p;
+  });
+}
+
 /* ------------------------------- TICK -------------------------------- */
 
 function tick(state) {
@@ -748,7 +849,17 @@ function tick(state) {
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      // A state saved before the price sheet was editable carries no sheet, and
+      // gets the published one rather than a missing price list. A state saved
+      // before plans were named the way the sheet prints them gets that back.
+      return {
+        ...saved,
+        sheet: sheetOf(saved.sheet),
+        plans: migratePlans(saved.plans) || buildSeed().plans,
+      };
+    }
   } catch {
     /* ignore */
   }

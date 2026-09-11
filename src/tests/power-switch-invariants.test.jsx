@@ -262,6 +262,9 @@ describe('INVARIANT: a flip either reaches the unit or sends nothing at all', ()
 /* ------------------------------------------------------------------ */
 
 describe('INVARIANT: the live link never reports a health it does not have', () => {
+  // Drives six real poll cycles through the store, so its runtime tracks machine
+  // load (2.4s alone, over 5s with the whole suite running) — it needs its own
+  // budget, not the 5s default.
   it('alternating polls: flag, error and warnings all follow the last outcome', async () => {
     const { default: App } = await import('../App.jsx');
     seedWithSession(FARMER);
@@ -290,7 +293,7 @@ describe('INVARIANT: the live link never reports a health it does not have', () 
       expect(statusFor(LIVE_ID)).not.toMatch(/Control server unreachable/i);
       expect(probe.state.devices.length).toBe(known);
     }
-  });
+  }, 20000);
 
   it('a healthy link never shows the warning, and never once a poll succeeded', async () => {
     const { default: App } = await import('../App.jsx');
