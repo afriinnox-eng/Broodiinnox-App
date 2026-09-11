@@ -43,6 +43,23 @@ export const TERMS = [
 
 export const TERM_IDS = TERMS.map((t) => t.id);
 
+/**
+ * The five plans as the app keeps them — the catalogue the platform sells.
+ * `PLANS` in the seed is exactly this list, and it is what a browser's saved
+ * catalogue is reconciled against (see `reconcilePlans`).
+ */
+export function approvedPlans() {
+  return TERMS.map((t) => ({
+    id: t.id,
+    // named exactly as the sheet prints it, so a renamed plan is visibly renamed
+    name: t.name,
+    durationDays: t.days,
+    multiplier: t.multiplier,
+    active: true,
+    description: t.description,
+  }));
+}
+
 /* ------------------------------------------------------------------ */
 /* The 36 farm-size bands, with the sheet's 15-Day price               */
 /* ------------------------------------------------------------------ */
@@ -326,6 +343,57 @@ export function sheetPlansForBand(sheet, band, plans) {
 export function planFrom(plans, id) {
   const list = Array.isArray(plans) ? plans : [];
   return list.find((p) => p.id === id) || termById(id) || null;
+}
+
+/**
+ * The catalogue the app runs on, from whatever a browser had saved.
+ *
+ * A saved state is not the price list. The list is Afriinnox's, and the plans
+ * on it are the five the approved sheet prints — so a catalogue left behind by
+ * an older build of the app is repaired here rather than trusted.
+ *
+ * It has to be: the first build seeded a catalogue of its own — three plans,
+ * "15-Day", "30-Day" and "90-Day", each with one flat price and no multiplier.
+ * A browser used since then still holds them, and their ids match no column of
+ * the sheet, so the console showed those three columns and an unknown price in
+ * every cell of every farm size, with the 6-Month and 1-Year plans nowhere.
+ *
+ * So the approved five are always present, first and in the sheet's order. A
+ * saved plan with an approved id keeps what the console changed about it (its
+ * name, its duration, its description, whether it is on sale), and only the
+ * approved multiplier where the saved one is missing. A saved plan that is not
+ * one of the five is kept only when it carries a multiplier — which is how the
+ * console adds a plan of its own, and what the stale three do not.
+ */
+export function reconcilePlans(plans) {
+  const saved = Array.isArray(plans) ? plans.filter((p) => p && typeof p.id === 'string') : [];
+  const byId = new Map(saved.map((p) => [p.id, p]));
+  const approved = approvedPlans().map((base) => {
+    const kept = byId.get(base.id);
+    if (!kept) return base;
+    return {
+      ...base,
+      name: keptPlanName(kept, base),
+      durationDays: Number.isInteger(kept.durationDays) && kept.durationDays > 0 ? kept.durationDays : base.durationDays,
+      multiplier: typeof kept.multiplier === 'number' && kept.multiplier > 0 ? kept.multiplier : base.multiplier,
+      active: kept.active !== false,
+      description: typeof kept.description === 'string' ? kept.description : base.description,
+    };
+  });
+  const added = [...new Map(saved
+    .filter((p) => !TERM_IDS.includes(p.id) && typeof p.multiplier === 'number' && p.multiplier > 0)
+    .map((p) => [p.id, p])).values()];
+  return [...approved, ...added];
+}
+
+/**
+ * A plan's name, as the console has it: a plan nobody renamed reads the way the
+ * sheet prints it — "30-Day Plan", not the "30-Day" an older seed stored.
+ */
+function keptPlanName(kept, base) {
+  const own = typeof kept?.name === 'string' ? kept.name.trim() : '';
+  if (own === '') return base.name;
+  return own === base.name.replace(/ Plan$/, '') ? base.name : own;
 }
 
 /* ---------------------------- editing ------------------------------ */

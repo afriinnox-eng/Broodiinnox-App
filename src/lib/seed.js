@@ -12,7 +12,7 @@
  * (BRD002, BRD005) and a long plan paying for several batches in a row (BRD003).
  */
 import { addDays, fmtDate } from './time.js';
-import { TERMS, bandForChicks, priceFor, publishedSheet } from './subscriptions.js';
+import { TERMS, approvedPlans, bandForChicks, priceFor, publishedSheet } from './subscriptions.js';
 
 function iso(daysFromNow, hour = 9) {
   const d = new Date();
@@ -30,18 +30,12 @@ const SENSORS = (temps, enabled = [true, true, true, true]) =>
 const termOf = (id) => TERMS.find((t) => t.id === id);
 
 /**
- * The five plans the platform sells. A plan is a duration; what it costs comes
- * from the farm size it is bought for, so no price is attached here.
+ * The five plans the platform sells, as the approved sheet lists them. A plan is
+ * a duration; what it costs comes from the farm size it is bought for, so no
+ * price is attached here. Built from `approvedPlans()` so the seed and the
+ * repair of an older browser's catalogue cannot drift apart.
  */
-export const PLANS = TERMS.map((t) => ({
-  id: t.id,
-  // named exactly as the sheet prints it, so a renamed plan is visibly renamed
-  name: t.name,
-  durationDays: t.days,
-  multiplier: t.multiplier,
-  active: true,
-  description: t.description,
-}));
+export const PLANS = approvedPlans();
 
 /**
  * A subscription as it looks on a real device: the farm size it was bought for,

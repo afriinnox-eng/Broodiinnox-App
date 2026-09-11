@@ -8,8 +8,8 @@ import {
   deviceMode, liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
-  coverageFor, describeChange, deviceChicks, draftError, planFrom, publishImpact, sheetBandForChicks,
-  sheetBandLabel, sheetBands, sheetChanges, sheetOf, sheetPrice, termById,
+  coverageFor, describeChange, deviceChicks, draftError, planFrom, publishImpact, reconcilePlans,
+  sheetBandForChicks, sheetBandLabel, sheetBands, sheetChanges, sheetOf, sheetPrice, termById,
 } from './subscriptions.js';
 import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
@@ -727,18 +727,6 @@ function planName(plan) {
   return own || termById(plan?.id)?.name || '';
 }
 
-/**
- * Seeded plans used to drop the trailing " Plan" from the sheet's name; the
- * sheet prints it, so a plan nobody renamed reads the way the sheet does.
- */
-function migratePlans(plans) {
-  if (!Array.isArray(plans)) return null;
-  return plans.map((p) => {
-    const published = termById(p.id);
-    return published && p.name === published.name.replace(/ Plan$/, '') ? { ...p, name: published.name } : p;
-  });
-}
-
 /* ------------------------------- TICK -------------------------------- */
 
 function tick(state) {
@@ -840,13 +828,14 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const saved = JSON.parse(raw);
-      // A state saved before the price sheet was editable carries no sheet, and
-      // gets the published one rather than a missing price list. A state saved
-      // before plans were named the way the sheet prints them gets that back.
+      // The price list belongs to Afriinnox, not to the browser: a state saved
+      // before the sheet was editable carries none and gets the published one,
+      // and the plans on it are always the approved five, however old the
+      // catalogue saved alongside them is. See `reconcilePlans`.
       return {
         ...saved,
         sheet: sheetOf(saved.sheet),
-        plans: migratePlans(saved.plans) || buildSeed().plans,
+        plans: reconcilePlans(saved.plans),
       };
     }
   } catch {

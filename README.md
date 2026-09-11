@@ -126,6 +126,17 @@ The price list is the approved sheet (`Broodiinnox_Prices_Subscription.pdf`,
   180 published prices band by band, so the app cannot quote a price the sheet
   does not.
 
+The list and the plans on it belong to Afriinnox, not to the browser that has
+saved them: `reconcilePlans()` in `src/lib/subscriptions.js` repairs whatever a
+state carries on load, so the five approved plans are always the ones on screen.
+It has to be — the first build seeded a catalogue of its own (three plans,
+"15-Day", "30-Day", "90-Day", one flat price each), and a browser used since then
+still holds it. Their ids match no column of the sheet, so the console showed
+those three columns and an unknown price in every cell of every farm size, with
+the 6-Month and 1-Year plans nowhere on it. A plan the console renamed or added
+is kept; stale seed data is dropped. `_sheet_matrix_check.mjs` drives the
+deployed app on both states and asserts the five columns and the approved RWF.
+
 A device is registered **with its farm size** — the maximum number of chicks
 brooded at once — and that is what decides what every plan costs for it. The
 farmer's page therefore shows the plans priced for their own farm size first,
