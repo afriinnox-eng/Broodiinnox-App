@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { avgTemp, controlAllowed } from '../lib/services.js';
-import { POWER_MAX_REASSERTS } from '../lib/live.js';
+import { POWER_MAX_REASSERTS, liveConfig } from '../lib/live.js';
 import { Btn, Modal } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { t } from '../i18n/strings.js';
@@ -26,7 +26,7 @@ import { t } from '../i18n/strings.js';
  * relay commands while `device_locked`.
  */
 export function PowerSwitch({ device, lang = 'en', small = false, showLabel = true, showHint = false }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const [confirmOff, setConfirmOff] = useState(false);
   if (!device) return null;
 
@@ -44,9 +44,25 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
   const unconfirmed = live && device.powerUnconfirmed === true;
   const gaveUp = unconfirmed && (device.powerRetries || 0) >= POWER_MAX_REASSERTS;
 
+  // This app is wired to the control server, but THIS card has no unit behind
+  // it — a seeded demo system, or one the server does not know. Flipping it
+  // cannot move any hardware, and the switch must say so instead of claiming
+  // an OFF that never left the browser.
+  const demoCard = liveConfig.enabled && !live;
+  // ... and if the control server itself is not answering, NO switch can reach
+  // a unit, which is the one thing the operator must be told.
+  const health = state?.liveHealth || null;
+  const serverDown = liveConfig.enabled && health?.ok === false;
+
   let status = null;
   let statusKind = '';
-  if (live) {
+  if (demoCard) {
+    status = t('power.demoCard', lang);
+    statusKind = 'pending';
+  } else if (serverDown) {
+    status = t('power.serverDown', lang);
+    statusKind = 'bad';
+  } else if (live) {
     if (pending) { status = t('power.unitSending', lang); statusKind = 'pending'; }
     else if (gaveUp) { status = t('power.unitNoConfirm', lang); statusKind = 'bad'; }
     else if (unconfirmed) { status = t('power.unitRetrying', lang); statusKind = 'pending'; }
@@ -66,7 +82,7 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
         max: device.targets?.max ?? device.baseMax,
       }))
     : null;
-  const showStatus = showHint || (live && (pending || unconfirmed || !!device.powerError));
+  const showStatus = demoCard || serverDown || showHint || (live && (pending || unconfirmed || !!device.powerError));
 
   const apply = (next) => {
     dispatch({ type: 'SET_SYSTEM_POWER', deviceId: device.id, on: next });
@@ -76,7 +92,9 @@ export function PowerSwitch({ device, lang = 'en', small = false, showLabel = tr
     if (!live) {
       dispatch({
         type: 'TOAST',
-        msg: t(next ? 'power.switchedOn' : 'power.switchedOff', lang, { name }),
+        msg: demoCard
+          ? t('power.demoFlip', lang, { name })
+          : t(next ? 'power.switchedOn' : 'power.switchedOff', lang, { name }),
       });
     }
   };

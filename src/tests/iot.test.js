@@ -194,11 +194,17 @@ describe('apiDeviceToVm', () => {
     const vm = apiDeviceToVm({ ...REAL_API_ROW, device_id: 'X', some_future_field: 'junk' });
     const keys = Object.keys(vm).sort();
     expect(keys).toEqual([
-      'aveTemp', 'day', 'failsafe', 'heaterOn', 'id', 'lastSeenAt', 'locked',
-      'manual', 'maxTemp', 'mismatchError', 'minTemp', 'name', 'online',
+      'aveTemp', 'day', 'failsafe', 'farmerId', 'heaterOn', 'id', 'lastSeenAt',
+      'locked', 'manual', 'maxTemp', 'mismatchError', 'minTemp', 'name', 'online',
       'relayOn', 'sensorError', 'sensors', 'signalQuality', 'stale', 'temps',
       'totalDays',
     ].sort());
+  });
+
+  it('carries the owning farmer, so a farmer sees the real unit', () => {
+    expect(apiDeviceToVm({ ...REAL_API_ROW, farmer_id: 'f1' }).farmerId).toBe('f1');
+    expect(apiDeviceToVm({ ...REAL_API_ROW, farmer_id: '  ' }).farmerId).toBeNull();
+    expect(apiDeviceToVm({ ...REAL_API_ROW, farmer_id: undefined }).farmerId).toBeNull();
   });
 
   it('sanitizes temperatures: impossible values become null, never poison control', () => {

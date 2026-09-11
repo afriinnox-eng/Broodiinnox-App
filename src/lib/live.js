@@ -138,7 +138,9 @@ export function storeDeviceFromVm(vm, nowIso) {
     id: vm.id,
     serial: vm.id,
     name: vm.name || vm.id,
-    farmerId: null,
+    // The API's registration carries the owner: a farmer must see the real
+    // unit even when this browser has no local record of registering it.
+    farmerId: vm.farmerId || null,
     firmware: 'V11 (live)',
     installedAt: nowIso,
     location: { district: '—', sector: '—', lat: 0, lng: 0 },

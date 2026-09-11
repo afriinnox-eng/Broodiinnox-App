@@ -320,3 +320,11 @@ tr:hover td { background: var(--surface-2); }
 }
 .app-shell.console .tab.active { color: #0b1020; border-bottom-color: #0b1020; }
 [data-theme='dark'] .app-shell.console .tab.active { color: #fff; border-bottom-color: #fff; }
+
+/* --- control server banner: the only path to the units is down --- */
+.live-banner {
+  display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; padding: 10px 14px;
+  border: 1px solid var(--crit); border-left-width: 4px; border-radius: var(--radius-sm);
+  background: var(--crit-soft); color: var(--text);
+}
+.live-banner svg { flex: none; margin-top: 1px; color: var(--crit); }

@@ -100,7 +100,12 @@ function reducer(state, action) {
           user: state.session?.name,
           role: state.session?.role,
           action: powerOn ? 'system.on' : 'system.off',
-          details: `${deviceId} system switched ${powerOn ? 'ON (relay AUTO)' : 'OFF (relay OFF)'}`,
+          // A card with no unit behind it (the demo fleet, or a device the
+          // control server does not know) must not write a hardware-sounding
+          // audit line: nothing was sent anywhere.
+          details: (liveConfig.enabled && dev.live !== true)
+            ? `${deviceId} demo system toggled ${powerOn ? 'ON' : 'OFF'} — no unit connected, nothing was sent`
+            : `${deviceId} system switched ${powerOn ? 'ON (relay AUTO)' : 'OFF (relay OFF)'}`,
           prev: { systemOn: dev.systemOn !== false },
           next: { systemOn: powerOn },
         }
@@ -314,7 +319,29 @@ function reducer(state, action) {
       for (const vm of vms) {
         if (!have.has(vm.id)) devices = [...devices, storeDeviceFromVm(vm, now)];
       }
-      return { ...state, devices, liveDeviceIds: [...liveIds] };
+      return {
+        ...state,
+        devices,
+        liveDeviceIds: [...liveIds],
+        // This API is the ONLY path to the hardware: record that it answered so
+        // the UI can say plainly when it stops answering.
+        liveHealth: { ok: true, at: action.at || now, error: null },
+      };
+    }
+
+    case 'LIVE_POLL_FAILED': {
+      // The control server did not answer. Keep the last good overlay, but stop
+      // pretending: no switch can reach a unit until it answers again.
+      const prev = state.liveHealth || {};
+      return {
+        ...state,
+        liveHealth: {
+          ok: false,
+          at: action.at || nowIso(),
+          error: action.error || 'control server unreachable',
+          lastOkAt: prev.ok ? prev.at : (prev.lastOkAt || null),
+        },
+      };
     }
 
     case 'ASSIGN_DEVICE':
@@ -593,8 +620,15 @@ export function StoreProvider({ children }) {
         } catch {
           /* never let the re-send break the poll */
         }
-      } catch {
-        /* keep the last good overlay; Admin Live surfaces connectivity */
+      } catch (err) {
+        if (cancelled) return;
+        // Keep the last good overlay, but never hide that the only path to
+        // the units is down — a switch flipped now reaches no hardware.
+        dispatch({
+          type: 'LIVE_POLL_FAILED',
+          at: new Date().toISOString(),
+          error: err?.message || String(err),
+        });
       }
     };
     tick();

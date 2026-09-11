@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store.jsx';
+import { liveConfig } from '../lib/live.js';
 import { LANGS, t } from '../i18n/strings.js';
 import { fmtDateTime } from '../lib/time.js';
 import { Icon } from './icons.jsx';
@@ -143,7 +144,18 @@ export default function AppShell({ children }) {
           <NotificationBell role={role} />
           <div className="chip">{state.session?.name}</div>
         </header>
-        <main className="main">{children}</main>
+        <main className="main">
+          {liveConfig.enabled && state.liveHealth?.ok === false && (
+            <div className="live-banner" role="alert">
+              <Icon name="wifi" size={17} />
+              <div>
+                <b>{t('live.serverDown', lang)}</b>
+                {state.liveHealth.error && <div className="small muted">{state.liveHealth.error}</div>}
+              </div>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </div>
   );

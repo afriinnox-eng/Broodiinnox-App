@@ -156,6 +156,12 @@ describe('storeDeviceFromVm', () => {
     expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: true }), NOW).systemOn).toBe(true);   // forced heating
     expect(storeDeviceFromVm(liveVm({ manual: true, heaterOn: false }), NOW).systemOn).toBe(false); // switched OFF
   });
+
+  it('keeps the owning farmer from the API registration (a farmer must see the real unit)', () => {
+    expect(storeDeviceFromVm(liveVm(), NOW).farmerId).toBeNull(); // row without farmer_id
+    expect(storeDeviceFromVm(liveVm({ farmerId: 'f1' }), NOW).farmerId).toBe('f1');
+    expect(storeDeviceFromVm(liveVm({ farmerId: '' }), NOW).farmerId).toBeNull();
+  });
 });
 
 describe('overlayLiveDevice', () => {

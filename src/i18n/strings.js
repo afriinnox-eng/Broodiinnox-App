@@ -117,6 +117,10 @@ const DICT = {
     'power.unitManualOff': 'Unit confirms: heating stopped, manual off (MAN).',
     'power.heaterRunning': 'Heater is running right now.',
     'power.heaterIdle': 'Heater is idle — {temp}°C is inside the {min}–{max}°C range.',
+    'power.demoCard': 'Demo system — no brooder is connected behind this card, so nothing will change in the field.',
+    'power.demoFlip': '{name} is a demo system — nothing was sent to a unit.',
+    'power.serverDown': 'Control server unreachable — the command cannot reach the unit right now.',
+    'live.serverDown': 'Not connected to the Broodiinnox control server — switches and settings cannot reach your units.',
   },
   fr: {
     'app.name': 'Broodiinnox',
@@ -226,6 +230,10 @@ const DICT = {
     'power.unitManualOff': 'Appareil confirmé : chauffage arrêté, mode manuel (MAN).',
     'power.heaterRunning': 'Le chauffage fonctionne en ce moment.',
     'power.heaterIdle': 'Chauffage au repos — {temp}°C est dans la plage {min}–{max}°C.',
+    'power.demoCard': "Système de démo — aucun couvoir n’est relié à cette carte : rien ne changera sur le terrain.",
+    'power.demoFlip': '{name} est un système de démo — rien n’a été envoyé à un appareil.',
+    'power.serverDown': "Serveur de contrôle injoignable — la commande ne peut pas atteindre l’appareil.",
+    'live.serverDown': "Non connecté au serveur de contrôle Broodiinnox — les interrupteurs et les réglages ne peuvent pas atteindre vos appareils.",
   },
   rw: {
     'app.name': 'Broodiinnox',
@@ -335,6 +343,10 @@ const DICT = {
     'power.unitManualOff': 'Sisitemu yemeje: ubushyuhe buhagaritswe, intoki (MAN).',
     'power.heaterRunning': 'Ubushyuhe burakora ubu.',
     'power.heaterIdle': 'Ubushyuhe ntibukora — {temp}°C iri mu {min}–{max}°C.',
+    'power.demoCard': 'Sisitemu y’igerageza — nta brooder ihuye n’iyi karita, nta kintu kizahinduka mu murima.',
+    'power.demoFlip': '{name} ni sisitemu y’igerageza — nta kintu cyoherejwe kuri sisitemu.',
+    'power.serverDown': 'Seriveri y’ubugenzuzi ntiboneka — itegeko ntirishobora kugera kuri sisitemu ubu.',
+    'live.serverDown': 'Ntihuje na seriveri y’ubugenzuzi ya Broodiinnox — ibikoresho n’igenamiterere ntibishobora kugera kuri sisitemu zawe.',
   },
 };
 

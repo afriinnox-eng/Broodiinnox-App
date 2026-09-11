@@ -176,6 +176,9 @@ export function apiDeviceToVm(row) {
   return {
     id: String(r.device_id ?? r.serial ?? ''),
     name: (typeof r.name === 'string' && r.name) ? r.name : String(r.device_id ?? r.serial ?? ''),
+    // The farmer the unit is registered to. Without it a farmer's dashboard
+    // shows only the demo fleet and NEVER the real system in the field.
+    farmerId: (typeof r.farmer_id === 'string' && r.farmer_id.trim()) ? r.farmer_id.trim() : null,
     online: asBool(r.online) === true,
     stale: asBool(r.stale) === true,
     locked: asBool(r.device_locked) === true,
