@@ -26,11 +26,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 class CheckFailed extends Error {}
 const fail = (msg) => { console.error(`[matrix] FAIL: ${msg}`); throw new CheckFailed(msg); };
 
+/** Every browser this check has open, so a failure cannot leave the process hanging on one. */
+const open = new Set();
+const close = (dom) => { open.delete(dom); dom.window.close(); };
+
 /** The plan catalogue the FIRST build of the app seeded, and left in the browser. */
 const OLD_PLANS = [
   { id: 'p15', name: '15-Day', durationDays: 15, price: 15000, active: true, description: 'Short cycle (piglets, small batches)' },
   { id: 'p30', name: '30-Day', durationDays: 30, price: 25000, active: true, description: 'Standard cycle (chickens)' },
   { id: 'p90', name: '90-Day', durationDays: 90, price: 65000, active: true, description: 'Multiple cycles — best value' },
+];
+
+/**
+ * Three plans sitting AFTER the approved five, each carrying a multiplier — the
+ * shape an older catalogue or a console's "add a plan" key leaves behind, and
+ * the one that put three extra columns on the end of the price list.
+ */
+const EXTRA_PLANS = [
+  { id: 'legacy-15', name: '15-Day', durationDays: 15, multiplier: 1, active: true, description: 'Extra column' },
+  { id: 'legacy-30', name: '30-Day', durationDays: 30, multiplier: 1.6, active: true, description: 'Extra column' },
+  { id: 'legacy-40', name: '40-Day', durationDays: 40, multiplier: 1.8, active: true, description: 'Extra column' },
 ];
 
 const FIVE = ['15-Day Plan', '30-Day Plan', '40-Day Plan', '6-Month Plan', '1-Year Plan'];
@@ -64,6 +79,7 @@ async function check() {
     });
     dom.window.fetch = () => Promise.reject(new Error('offline in verification'));
     dom.window.eval(code);
+    open.add(dom);
     return dom;
   };
 
@@ -86,6 +102,7 @@ async function check() {
     } catch { return null; }
   });
   fresh.window.close();
+  open.delete(fresh);
   const seededRow = (bandId) => Object.keys(seeded.sheet.bands.find((b) => b.id === bandId).prices)
     .map((k) => seeded.sheet.bands.find((b) => b.id === bandId).prices[k]);
   console.log(`[matrix] fresh: ${seeded.plans.length} plans — ${seeded.plans.map((p) => p.name).join(', ')}`);
@@ -101,7 +118,14 @@ async function check() {
   const stale = { ...seeded, plans: OLD_PLANS, session: admin };
   delete stale.sheet;
   delete stale.sheetDraft;
-  for (const [label, state] of [['fresh', { ...seeded, session: admin }], ['a state an older build left behind', stale]]) {
+  const withExtras = { ...seeded, plans: [...seeded.plans, ...EXTRA_PLANS], session: admin };
+  delete withExtras.sheetDraft;
+  const STATES = [
+    ['fresh', { ...seeded, session: admin }],
+    ['a state an older build left behind', stale],
+    ['a catalogue carrying three extra plans', withExtras],
+  ];
+  for (const [label, state] of STATES) {
     const dom = boot('#/admin/subscriptions', state);
     const doc = dom.window.document;
     const table = await waitFor(doc, `the price list (${label})`, () => {
@@ -121,15 +145,17 @@ async function check() {
       if (cells.join(' | ') !== expected.join(' | ')) fail(`${label}: ${bandLabel} reads ${cells.join(', ')}, not ${expected.join(', ')}`);
     }
     dom.window.close();
+    open.delete(dom);
   }
 }
 
 check().then(
   () => {
-    console.log(`[matrix] verdict: on ${BASE}, the console prices all five approved plans at every farm size, whether the browser was freshly seeded or is still carrying the three plans an older build left: YES`);
+    console.log(`[matrix] verdict: on ${BASE}, the console shows exactly the five approved plans — no extra column — and prices them at every farm size, on a fresh state, on a state an older build left, and on a catalogue carrying three extras: YES`);
     process.exitCode = 0;
   },
   (e) => {
+    for (const d of [...open]) { try { close(d); } catch { /* already gone */ } }
     if (!(e instanceof CheckFailed)) console.error('[matrix] unexpected error:', e);
     process.exitCode = 1;
   },

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
-import { subscriptionState, uid } from '../../lib/services.js';
+import { subscriptionState } from '../../lib/services.js';
 import {
-  SHEET_SOURCE, coverageFor, describeChange, deviceChicks, draftError, publishImpact, sheetBandBase,
+  SHEET_SOURCE, coverageFor, describeChange, deviceChicks, draftError, publishImpact,
   sheetBandForChicks, sheetBandIsPriced, sheetBandLabel, sheetBands, sheetChanges, sheetPrice,
 } from '../../lib/subscriptions.js';
 import { Badge, Btn, Card, DataTable, Field, Modal } from '../../components/ui.jsx';
@@ -119,15 +119,11 @@ export default function AdminSubscriptions() {
 
       <div className="row-between" style={{ marginTop: 8 }}>
         <h3 style={{ margin: 0 }}>Plans <span className="pill">{plans.length}</span></h3>
-        {editing && (
-          <Btn small onClick={() => setPlanEdit({ id: uid('plan'), name: '', durationDays: 30, description: '', active: true, multiplier: 1.6, isNew: true })}>
-            + Add plan
-          </Btn>
-        )}
       </div>
       <p className="muted small">
         A plan is a duration. What it costs is set by the farm size it is bought for, from the price list
-        below — no price is stored on the plan itself.
+        below — no price is stored on the plan itself. These are the five plans the approved sheet prints,
+        so the list shows five columns and no more.
       </p>
       <div className="grid cols-3">
         {plans.map((p) => {
@@ -275,7 +271,6 @@ export default function AdminSubscriptions() {
       {planEdit && (
         <PlanModal
           plan={planEdit}
-          bands={bands}
           onSave={(plan) => { putPlan(plan); setPlanEdit(null); }}
           onClose={() => setPlanEdit(null)}
         />
@@ -318,46 +313,28 @@ function changedPlanIds(changes) {
  * A plan's name, how long it lasts, what it says to the farmer, and whether it
  * is on sale. This edits the working copy only: nothing reaches the store until
  * Save, and nothing reaches a farmer until Publish.
+ *
+ * It edits ONE OF THE FIVE the sheet prints — the list is those five plans, so
+ * there is nothing here to add a sixth. How a plan is priced is its farm sizes,
+ * never a multiplier typed in by hand.
  */
-function PlanModal({ plan, bands, onSave, onClose }) {
+function PlanModal({ plan, onSave, onClose }) {
   const [name, setName] = useState(plan.name || '');
   const [durationDays, setDuration] = useState(String(plan.durationDays || 30));
   const [description, setDescription] = useState(plan.description || '');
   const [active, setActive] = useState(plan.active !== false);
-  const [multiplier, setMultiplier] = useState(String(plan.multiplier ?? 1.6));
   const durNum = Number(durationDays);
-  const multNum = Number(multiplier);
-  const valid = name.trim() !== '' && Number.isInteger(durNum) && durNum >= 1
-    && (!plan.isNew || (Number.isFinite(multNum) && multNum > 0));
-
-  // A brand-new plan has no cells of its own yet: it is priced as a multiple of
-  // the row's reference price until you type over its column in the list.
-  const example = bands[5] || bands[0];
-  const exampleBase = example ? sheetBandBase({ bands }, example) : null;
-  const examplePrice = plan.isNew && Number.isFinite(multNum) && exampleBase !== null
-    ? Math.round(exampleBase * multNum)
-    : null;
+  const valid = name.trim() !== '' && Number.isInteger(durNum) && durNum >= 1;
 
   return (
-    <Modal title={plan.isNew ? 'Add a plan' : 'Edit plan'} onClose={onClose}>
+    <Modal title="Edit plan" onClose={onClose}>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 45-Day Plan" /></Field>
-      <div className="grid cols-2" style={{ gap: 10 }}>
-        <Field label="Duration (days)"><input type="number" min={1} value={durationDays} onChange={(e) => setDuration(e.target.value)} /></Field>
-        {plan.isNew && (
-          <Field label="Price multiplier (x the 15-Day price)"><input type="number" min={0.1} step={0.1} value={multiplier} onChange={(e) => setMultiplier(e.target.value)} /></Field>
-        )}
-      </div>
+      <Field label="Duration (days)"><input type="number" min={1} value={durationDays} onChange={(e) => setDuration(e.target.value)} /></Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
       <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
         On sale (a farmer can choose it)
       </label>
-      {plan.isNew && (
-        <p className="muted small">
-          On {sheetBandLabel({ bands }, example)}, that multiple of the 15-Day column ({exampleBase === null ? 'not priced' : fmtMoney(exampleBase)}) is{' '}
-          <b>{examplePrice === null ? '—' : fmtMoney(examplePrice)}</b>. Type over the column in the list to set its prices cell by cell.
-        </p>
-      )}
       <div className="btn-row">
         <Btn
           variant="primary"
@@ -368,7 +345,7 @@ function PlanModal({ plan, bands, onSave, onClose }) {
             durationDays: durNum,
             description,
             active,
-            multiplier: plan.isNew ? multNum : (plan.multiplier ?? 1),
+            multiplier: plan.multiplier ?? 1,
           })}
         >
           Save to the list

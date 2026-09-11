@@ -23,7 +23,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { StoreProvider, useStore } from '../lib/store.jsx';
 import { buildSeed } from '../lib/seed.js';
 import {
@@ -40,6 +40,17 @@ const OLD_PLANS = [
   { id: 'p90', name: '90-Day', durationDays: 90, price: 65000, active: true, description: 'Multiple cycles — best value' },
 ];
 
+/**
+ * Three plans sitting AFTER the approved five, each carrying a multiplier — the
+ * shape that put three extra columns on the end of the price list, named
+ * exactly as the user reported them: 15-Day, 30-Day, 40-Day.
+ */
+const EXTRA_PLANS = [
+  { id: 'legacy-15', name: '15-Day', durationDays: 15, multiplier: 1, active: true, description: 'Extra column' },
+  { id: 'legacy-30', name: '30-Day', durationDays: 30, multiplier: 1.6, active: true, description: 'Extra column' },
+  { id: 'legacy-40', name: '40-Day', durationDays: 40, multiplier: 1.8, active: true, description: 'Extra column' },
+];
+
 /** Every kind of catalogue a browser could hand the app. */
 const SAVED = [
   ['nothing at all', undefined],
@@ -52,6 +63,8 @@ const SAVED = [
   ['an older seed\'s plan names (no " Plan")', approvedPlans().map((p) => ({ ...p, name: p.name.replace(/ Plan$/, '') }))],
   ['an approved plan with no multiplier', approvedPlans().map((p) => (p.id === 't6m' ? { ...p, multiplier: undefined } : p))],
   ['the five plus a plan the console added', [...approvedPlans(), { id: 'plan-x', name: '45-Day Plan', durationDays: 45, multiplier: 2.2, active: true, description: 'Added by Afriinnox' }]],
+  ['the five plus three extra columns named 15/30/40-Day', [...approvedPlans(), ...EXTRA_PLANS]],
+  ['only extra columns, none of the five', EXTRA_PLANS],
   ['duplicated ids', [...approvedPlans(), { ...approvedPlans()[0], name: 'Duplicate 15-Day' }]],
   ['junk alongside real plans', [null, {}, { id: 7 }, { id: 't15d', name: '   ' }, ...approvedPlans()]],
 ];
@@ -84,7 +97,7 @@ describe('INVARIANT: the app always runs on the five approved plans', () => {
   it('holds for every catalogue a browser could have saved', () => {
     for (const [what, saved] of SAVED) {
       const plans = reconcilePlans(saved);
-      expect(plans.slice(0, 5).map((p) => p.id), what).toEqual(TERM_IDS);
+      expect(plans.map((p) => p.id), what).toEqual(TERM_IDS);
       for (const plan of leadingFive(plans)) {
         const term = TERMS.find((t) => t.id === plan.id);
         expect(typeof plan.name === 'string' && plan.name.trim() !== '', `${what}: ${plan.id} has a name`).toBe(true);
@@ -93,10 +106,9 @@ describe('INVARIANT: the app always runs on the five approved plans', () => {
         // what the sheet prints for this plan is what the app can charge for it
         expect(plan.multiplier, `${what}: ${plan.id} multiplier`).toBe(term.multiplier);
       }
-      // nothing is left in the catalogue that the sheet cannot price
-      for (const plan of plans.slice(5)) {
-        expect(plan.multiplier, `${what}: ${plan.id} (added by the console)`).toBeGreaterThan(0);
-      }
+      // the catalogue is exactly the sheet's five: anything a state carried
+      // beyond them has no column to appear in
+      expect(plans, `${what}: no plan beyond the five`).toHaveLength(5);
     }
   });
 
@@ -134,7 +146,7 @@ describe('INVARIANT: the app always runs on the five approved plans', () => {
     expect(plans.map((p) => p.name)).toEqual(['15-Day Plan', '30-Day Plan', '40-Day Plan', '6-Month Plan', '1-Year Plan']);
   });
 
-  it('keeps what the console changed, and a plan the console added', () => {
+  it('keeps what the console changed about the five, and drops every other plan', () => {
     const renamed = reconcilePlans(approvedPlans().map((p) => (p.id === 't30d' ? { ...p, name: 'Monthly Plan', durationDays: 45, active: false } : p)));
     const monthly = renamed.find((p) => p.id === 't30d');
     expect(monthly.name).toBe('Monthly Plan');
@@ -142,9 +154,15 @@ describe('INVARIANT: the app always runs on the five approved plans', () => {
     expect(monthly.active).toBe(false);
     expect(monthly.multiplier).toBe(1.6);              // the sheet's multiple, kept
 
+    // nothing but the sheet's five gets a column, however complete it looks
     const withOwn = reconcilePlans([...OLD_PLANS, { id: 'plan-x', name: '45-Day Plan', durationDays: 45, multiplier: 2.2 }]);
-    expect(withOwn.map((p) => p.id)).toEqual([...TERM_IDS, 'plan-x']);
-    expect(withOwn[5].multiplier).toBe(2.2);
+    expect(withOwn.map((p) => p.id)).toEqual(TERM_IDS);
+    expect(withOwn).toHaveLength(5);
+
+    const extras = reconcilePlans([...approvedPlans(), ...EXTRA_PLANS]);
+    expect(extras.map((p) => p.id)).toEqual(TERM_IDS);
+    expect(extras.map((p) => p.name)).not.toContain('15-Day');
+    expect(extras.some((p) => p.id.startsWith('legacy-'))).toBe(false);
 
     // an older seed dropped the trailing " Plan"; the sheet prints it
     expect(reconcilePlans(OLD_PLANS)[1].name).toBe('30-Day Plan');
@@ -182,10 +200,28 @@ describe('BEHAVIOURAL: a browser that has been used since an older build', () =>
     expect(probe.state.plans.map((p) => p.name))
       .toEqual(['15-Day Plan', '30-Day Plan', 'Duck & Turkey Plan', '6-Month Plan', '1-Year Plan']);
   });
+
+  it('prunes extra plans out of a saved working copy, keeping the prices it holds', () => {
+    const saved = { ...clone(buildSeed()), session: ADMIN, reminderSent: [] };
+    saved.sheetDraft = {
+      bands: saved.sheet.bands.map((b) => (b.id === 'b06' ? { ...b, prices: { ...b.prices, t30d: 60000 } } : { ...b })),
+      plans: [...approvedPlans(), ...EXTRA_PLANS],
+      savedAt: new Date().toISOString(),
+      savedBy: 'Innocent Ingabire',
+    };
+    localStorage.setItem(KEY, JSON.stringify(saved));
+
+    render(<StoreProvider><Probe /></StoreProvider>);
+
+    expect(probe.state.sheetDraft.plans.map((p) => p.id)).toEqual(TERM_IDS);
+    expect(probe.state.sheetDraft.savedBy).toBe('Innocent Ingabire');   // the admin's own edit survives
+    const row = probe.state.sheetDraft.bands.find((b) => b.id === 'b06');
+    expect(sheetPrice(probe.state.sheet, row, probe.state.plans.find((p) => p.id === 't30d'))).toBe(60000);
+  });
 });
 
 /* ------------------------------------------------------------------ */
-/* FUNCTIONAL: the console an older build leaves behind                */
+/* FUNCTIONAL: the console, on a state that carries extra plans         */
 /* ------------------------------------------------------------------ */
 
 describe('FUNCTIONAL: the admin console on a stale state', () => {
@@ -220,5 +256,37 @@ describe('FUNCTIONAL: the admin console on a stale state', () => {
     // the three stale plans are not on the console at all
     expect(out.queryByText('90-Day')).toBeNull();
     expect([...out.container.querySelectorAll('th')].some((th) => /90-Day/.test(th.textContent))).toBe(false);
+  });
+
+  it('shows five columns and not one more, on a catalogue carrying three extra plans', async () => {
+    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
+    const extras = { ...clone(buildSeed()), plans: [...approvedPlans(), ...EXTRA_PLANS], session: ADMIN, reminderSent: [] };
+    localStorage.setItem(KEY, JSON.stringify(extras));
+
+    const out = render(
+      <StoreProvider>
+        <Probe />
+        <MemoryRouter initialEntries={['/admin/subscriptions']}><AdminSubscriptions /></MemoryRouter>
+      </StoreProvider>
+    );
+
+    const table = [...out.container.querySelectorAll('table')].find((t) => /Up to 599 chicks/.test(t.textContent));
+    expect(table, 'the price list is on the console').toBeTruthy();
+    expect([...table.querySelectorAll('thead th')].map((th) => th.textContent.trim()))
+      .toEqual(['Farm size', '15-Day Plan', '30-Day Plan', '40-Day Plan', '6-Month Plan', '1-Year Plan']);
+
+    // the extra columns were named 15-Day, 30-Day and 40-Day: none of them is left
+    const heads = [...out.container.querySelectorAll('th')].map((th) => th.textContent.trim());
+    for (const name of ['15-Day', '30-Day', '40-Day']) expect(heads, name).not.toContain(name);
+    for (const name of ['15-Day Plan', '30-Day Plan', '40-Day Plan']) {
+      expect(heads.filter((h) => h === name), name).toHaveLength(1);
+    }
+
+    // and no key in an edit session offers a sixth column
+    const editBtn = [...out.container.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Edit');
+    expect(editBtn, 'the Edit key is on the console').toBeTruthy();
+    fireEvent.click(editBtn);
+    expect(out.container.querySelectorAll('input.cell-input.price')).toHaveLength(36 * 5);
+    expect([...out.container.querySelectorAll('button')].some((b) => /add plan/i.test(b.textContent))).toBe(false);
   });
 });

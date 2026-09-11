@@ -727,6 +727,16 @@ function planName(plan) {
   return own || termById(plan?.id)?.name || '';
 }
 
+/**
+ * A saved working copy of the price list, repaired the way the list itself is:
+ * its prices and labels are the admin's, but its plans are the sheet's five, so
+ * a draft cannot carry a column the published list will never have.
+ */
+function reconcileDraft(draft) {
+  if (!draft || typeof draft !== 'object' || !Array.isArray(draft.bands)) return null;
+  return { ...draft, plans: reconcilePlans(draft.plans) };
+}
+
 /* ------------------------------- TICK -------------------------------- */
 
 function tick(state) {
@@ -836,6 +846,7 @@ function loadState() {
         ...saved,
         sheet: sheetOf(saved.sheet),
         plans: reconcilePlans(saved.plans),
+        sheetDraft: reconcileDraft(saved.sheetDraft),
       };
     }
   } catch {

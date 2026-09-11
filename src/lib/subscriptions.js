@@ -358,17 +358,18 @@ export function planFrom(plans, id) {
  * the sheet, so the console showed those three columns and an unknown price in
  * every cell of every farm size, with the 6-Month and 1-Year plans nowhere.
  *
- * So the approved five are always present, first and in the sheet's order. A
- * saved plan with an approved id keeps what the console changed about it (its
- * name, its duration, its description, whether it is on sale), and only the
- * approved multiplier where the saved one is missing. A saved plan that is not
- * one of the five is kept only when it carries a multiplier — which is how the
- * console adds a plan of its own, and what the stale three do not.
+ * So the catalogue is EXACTLY the sheet's five plans, in the sheet's order, and
+ * nothing else: the sheet prints five columns and the list shows five columns.
+ * A saved plan with an approved id keeps what the console changed about it (its
+ * name, its duration, its description, whether it is on sale), and the approved
+ * multiplier where the saved one is missing. A plan the state carries that the
+ * sheet does not print is dropped — it is a column of its own, next to five that
+ * already cover that duration, and the console offers no way to add one.
  */
 export function reconcilePlans(plans) {
   const saved = Array.isArray(plans) ? plans.filter((p) => p && typeof p.id === 'string') : [];
   const byId = new Map(saved.map((p) => [p.id, p]));
-  const approved = approvedPlans().map((base) => {
+  return approvedPlans().map((base) => {
     const kept = byId.get(base.id);
     if (!kept) return base;
     return {
@@ -380,10 +381,6 @@ export function reconcilePlans(plans) {
       description: typeof kept.description === 'string' ? kept.description : base.description,
     };
   });
-  const added = [...new Map(saved
-    .filter((p) => !TERM_IDS.includes(p.id) && typeof p.multiplier === 'number' && p.multiplier > 0)
-    .map((p) => [p.id, p])).values()];
-  return [...approved, ...added];
 }
 
 /**
