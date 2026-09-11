@@ -358,6 +358,10 @@ describe('FUNCTIONAL: the farmer sees their own farm size first, other sizes on 
     expect(out.getByText(/No farm size is recorded for this system yet/)).toBeTruthy();
     expect(out.getByText(/not recorded yet/)).toBeTruthy();
     expect(out.queryByText('Plans for Up to 599 chicks')).toBeNull();
+    // the farmer is told the size is recorded at installation, not walked through
+    // the admin console's screens — no admin navigation path in farmer-facing copy
+    expect(out.container.textContent).not.toMatch(/Admin\s*(→|->)/);
+    expect(out.getByText(/Afriinnox records it at installation/)).toBeTruthy();
   });
 });
 

@@ -191,8 +191,8 @@ export default function FarmerSubscriptions() {
                     <Icon name="alert" size={18} />
                     <div>
                       No farm size is recorded for this system yet, so its own prices cannot be shown.
-                      Afriinnox records it at installation (Admin → Systems → this unit → Farm size) — until
-                      then, the full published price list below shows every plan at every size.
+                      Afriinnox records it at installation — until then, the full published price list
+                      below shows every plan at every size.
                     </div>
                   </div>
                   <div className="muted small" style={{ marginTop: 10, fontWeight: 700 }}>

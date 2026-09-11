@@ -168,6 +168,44 @@ console.log(`[bundle] payment modal: ${options.length} plans offered, each price
 if (!priced) fail('the payment modal does not offer all five plans with real prices');
 const cancel = byText('button', /^Cancel$/);
 if (cancel) click(cancel);
+
+/* 10. the same bundle, booted with no farm size recorded for the farmer's
+       systems: what the farmer reads then must say the size is recorded at
+       installation and must NOT walk them through the admin console. */
+const patched = JSON.parse(window.localStorage.getItem('broodiinnox_app_v1'));
+patched.devices = (patched.devices || []).map((d) => (d.farmerId === 'f1' ? { ...d, farmSize: null, batch: null } : d));
+const dom2 = new JSDOM(html, {
+  url: `${base}#/farmer/subscriptions`,
+  runScripts: 'dangerously',
+  pretendToBeVisual: true,
+  virtualConsole: vc,
+  beforeParse: (w) => w.localStorage.setItem('broodiinnox_app_v1', JSON.stringify(patched)),
+});
+const win2 = dom2.window;
+const doc2 = win2.document;
+win2.fetch = () => Promise.reject(new Error('offline in verification'));
+win2.eval(code);
+const wait2 = async (label, fn, ms = 8000) => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const out = fn();
+    if (out) return out;
+    if (Date.now() > deadline) fail(`timed out waiting for ${label} at ${win2.location.hash} (body: ${JSON.stringify(doc2.body.textContent.slice(0, 700))})`);
+    await sleep(25);
+  }
+};
+await wait2('the app shell with no farm size', () => doc2.querySelector('a[href="#/farmer/subscriptions"]'));
+await wait2('the no-farm-size message', () => /No farm size is recorded for this system yet/.test(doc2.body.textContent));
+const body2 = doc2.body.textContent;
+const sentence = (body2.match(/No farm size is recorded[\s\S]*?\./) || [''])[0].replace(/\s+/g, ' ').trim();
+const saysInstall = /Afriinnox records it at installation/.test(body2);
+const adminPath = /Admin\s*(→|->)/.test(body2);
+console.log(`[bundle] no farm size recorded: message shown=true, says the size is recorded at installation=${saysInstall}, names an admin path=${adminPath}`);
+console.log(`[bundle] what the farmer reads: ${JSON.stringify(sentence)}`);
+if (!saysInstall) fail('the no-farm-size message does not say where the farm size comes from');
+if (adminPath) fail('the farmer-facing message still walks the user through the admin console');
+
+win2.close();
 window.close();
 server.close();
 process.exit(0);

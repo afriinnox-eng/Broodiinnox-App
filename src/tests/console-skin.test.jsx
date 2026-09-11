@@ -28,6 +28,10 @@
  *      (farmer blue vs admin black) and only the selected role carries it, on
  *      the active tab border and on the Sign-in button; switching modes swaps
  *      exactly which side carries it.
+ *   7. NO ADMIN PATH IN FARMER COPY — nothing a farmer can read, on any farmer
+ *      route or in any farm-size state, walks them through the admin console
+ *      ("Admin → Systems → …"); the source of every farmer page, every shared
+ *      component and the string table is swept for it too.
  */
 import React from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -180,6 +184,74 @@ describe('console skin invariants: theme independence', () => {
     expect(shells[0]).not.toContain(spec.other);
     expect(container.querySelector('.sidebar .brand-sub').textContent.trim()).toBe(spec.sub);
     expect(hasEmoji(container.textContent)).toBe(false);
+  });
+});
+
+/* An admin-side navigation path is only meaningful to someone who HAS the
+ * console. A farmer reading "Admin → Systems → this unit → Farm size" is being
+ * sent to screens they cannot open, so the property is: never in farmer copy. */
+const ADMIN_PATH = /Admin\s*(?:→|->|>)/;
+
+function renderFarmerAt(path, patchDevice) {
+  const seed = seedWith(SESSIONS.farmer);
+  if (patchDevice) seed.devices = seed.devices.map((d) => (d.farmerId === 'f1' ? patchDevice(d) : d));
+  localStorage.setItem(KEY, JSON.stringify(seed));
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <StoreProvider>
+        <App />
+      </StoreProvider>
+    </MemoryRouter>
+  );
+}
+
+describe('invariant: no farmer-facing copy routes the user into the admin console', () => {
+  /* every state the subscriptions page can be in: a size on record, no size but
+     a batch running now, and no size at all */
+  const SIZE_STATES = [
+    ['a farm size on record', (d) => ({ ...d })],
+    ['no farm size but a batch running now', (d) => ({ ...d, farmSize: null })],
+    ['no farm size and no batch', (d) => ({ ...d, farmSize: null, batch: null })],
+  ];
+
+  it.each(SIZE_STATES)('names no admin path with %s', (_label, patch) => {
+    const { container } = renderFarmerAt('/farmer/subscriptions', patch);
+    expect(container.textContent).not.toMatch(ADMIN_PATH);
+  });
+
+  it('still says where the missing size comes from when there is none at all', () => {
+    const { container } = renderFarmerAt('/farmer/subscriptions', (d) => ({ ...d, farmSize: null, batch: null }));
+    const text = container.textContent;
+    expect(text).toMatch(/No farm size is recorded for this system yet/);
+    expect(text).toMatch(/Afriinnox records it at installation/);
+    // the full published price list is on screen instead, and can be closed again
+    expect(text).toMatch(/Every plan, priced for every farm size/);
+    expect(text).toMatch(/Hide other farm sizes/);
+  });
+
+  it.each([
+    '/farmer/dashboard', '/farmer/systems', '/farmer/batches', '/farmer/alerts',
+    '/farmer/subscriptions', '/farmer/payments', '/farmer/support', '/farmer/notifications',
+    '/farmer/tips', '/farmer/settings', '/farmer/systems/BRD001',
+  ])('names no admin path on %s', (path) => {
+    const { container } = renderFarmerAt(path);
+    expect(container.textContent).not.toMatch(ADMIN_PATH);
+  });
+
+  it('holds across the whole farmer surface in the source, not just on screen today', () => {
+    const sources = {
+      ...import.meta.glob('../pages/farmer/**/*.jsx', { query: '?raw', import: 'default', eager: true }),
+      ...import.meta.glob('../components/**/*.jsx', { query: '?raw', import: 'default', eager: true }),
+      ...import.meta.glob('../i18n/*.js', { query: '?raw', import: 'default', eager: true }),
+      ...import.meta.glob('../lib/services.js', { query: '?raw', import: 'default', eager: true }),
+    };
+    const paths = Object.keys(sources);
+    // a glob that silently matches nothing would make this assertion vacuous
+    expect(paths.filter((p) => p.includes('/pages/farmer/')).length).toBeGreaterThan(8);
+    expect(paths.filter((p) => p.includes('/components/')).length).toBeGreaterThan(3);
+    for (const path of paths) {
+      expect(ADMIN_PATH.test(sources[path]), `${path} walks the farmer through the admin console`).toBe(false);
+    }
   });
 });
 
