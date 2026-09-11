@@ -8,9 +8,8 @@ import {
   deviceMode, liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
-  SHEET_SOURCE, bandEditError, coverageFor, deviceChicks, planFrom, priceEditError, publishedSheet,
-  sheetBandById, sheetBandForChicks, sheetBandLabel, sheetOf, sheetPrice, sheetWithBand,
-  sheetWithPrice, termById,
+  coverageFor, describeChange, deviceChicks, draftError, planFrom, publishImpact, sheetBandForChicks,
+  sheetBandLabel, sheetBands, sheetChanges, sheetOf, sheetPrice, termById,
 } from './subscriptions.js';
 import {
   avgTemp, batchDay, generateAlerts, heaterDecision, makeAudit, paymentVerified,
@@ -434,81 +433,81 @@ function reducer(state, action) {
       );
     }
 
-    case 'CREATE_PLAN':
-      return withAudit(
-        { ...state, plans: [...state.plans, { id: uid('plan'), active: true, ...action.plan }] },
-        { user: state.session?.name, role: state.session?.role, action: 'plan.create', details: `Created plan ${action.plan.name}` }
-      );
+    /* Plans are edited as part of the price list, through the draft — see the
+       SHEET_* actions below — so there is no separate plan write path. */
 
-    case 'UPDATE_PLAN': {
-      const before = planOf(state, action.id);
-      const updated = withAudit(
-        { ...state, plans: state.plans.map((p) => (p.id === action.id ? { ...p, ...action.patch } : p)) },
-        { user: state.session?.name, role: state.session?.role, action: 'plan.update', details: `Updated plan ${action.id}` }
-      );
-      // A rename is a price-list change too: every column of the sheet is headed
-      // by this name, so it is worth its own audit line.
-      const after = planOf(updated, action.id);
-      const beforeName = planName(before);
-      if (action.patch?.name !== undefined && planName(after) !== beforeName) {
-        return withAudit(updated, {
-          user: state.session?.name, role: state.session?.role, action: 'plan.rename',
-          details: `Plan renamed ${beforeName} → ${planName(after)}`,
-          prev: { name: beforeName }, next: { name: planName(after) },
-        });
-      }
-      return updated;
-    }
+    /* ---- the price list: the admin edits a working copy, saves it, publishes it ---- */
 
-    /* ---- the price sheet itself: the admin edits it, every price reads it ---- */
-
-    case 'SHEET_SET_PRICE': {
+    case 'SHEET_SAVE': {
       // Afriinnox owns the price list; a farmer must never reach this.
       if (state.session?.role !== 'admin') return state;
-      const band = sheetBandById(state.sheet, action.bandId);
-      const plan = planOf(state, action.planId);
-      const reason = !band ? 'That farm size is not on the price list.'
-        : !plan ? 'That plan is not on the price list.'
-          : priceEditError(action.price);
-      const next = reason ? null : sheetWithPrice(state.sheet, action.bandId, action.planId, action.price);
-      if (!next) return { ...state, toast: { msg: reason || 'That price cannot be saved.', kind: 'error', at: Date.now() } };
-      const was = sheetPrice(state.sheet, band, plan);
+      const working = { bands: action.bands, plans: action.plans };
+      const published = { bands: sheetBands(state.sheet), plans: state.plans };
+      const reason = draftError(published, working);
+      if (reason) return { ...state, toast: { msg: reason, kind: 'error', at: Date.now() } };
+      const changes = sheetChanges(published, working);
       return withAudit(
-        { ...state, sheet: { ...next, updatedAt: nowIso(), updatedBy: state.session?.name || 'admin' } },
         {
-          user: state.session?.name, role: state.session?.role, action: 'price_sheet.price',
-          details: `${planName(plan)} — ${sheetBandLabel(state.sheet, band)}: ${money(was)} → ${money(action.price)}`,
-          prev: { price: was }, next: { price: action.price },
+          ...state,
+          sheetDraft: { bands: working.bands, plans: working.plans, savedAt: nowIso(), savedBy: state.session?.name || 'admin' },
+        },
+        {
+          user: state.session?.name, role: state.session?.role, action: 'price_sheet.save',
+          details: `Saved ${changes.length} unpublished change${changes.length === 1 ? '' : 's'} to the price list${changes.length ? ` — ${changes.slice(0, 3).map((c) => describeChange(c, working)).join('; ')}${changes.length > 3 ? `; +${changes.length - 3} more` : ''}` : ''}`,
+          prev: null, next: { changes: changes.length },
         }
       );
     }
 
-    case 'SHEET_SET_BAND': {
+    case 'SHEET_DISCARD':
       if (state.session?.role !== 'admin') return state;
-      const band = sheetBandById(state.sheet, action.bandId);
-      if (!band) return { ...state, toast: { msg: 'That farm size is not on the price list.', kind: 'error', at: Date.now() } };
-      const patch = action.patch || {};
-      const reason = bandEditError(state.sheet, action.bandId, patch);
-      const next = reason ? null : sheetWithBand(state.sheet, action.bandId, patch);
-      if (!next) return { ...state, toast: { msg: reason || 'That farm size cannot be saved.', kind: 'error', at: Date.now() } };
-      const after = next.bands.find((b) => b.id === action.bandId);
+      if (!state.sheetDraft) return { ...state, toast: { msg: 'There is nothing saved to discard.', kind: 'error', at: Date.now() } };
       return withAudit(
-        { ...state, sheet: { ...next, updatedAt: nowIso(), updatedBy: state.session?.name || 'admin' } },
-        {
-          user: state.session?.name, role: state.session?.role, action: 'price_sheet.size',
-          details: `Farm size ${sheetBandLabel(state.sheet, band)} (${rangeLabel(band)}) → ${sheetBandLabel(next, after)} (${rangeLabel(after)})`,
-          prev: { label: band.label, min: band.min, max: band.max },
-          next: { label: after.label, min: after.min, max: after.max },
-        }
+        { ...state, sheetDraft: null },
+        { user: state.session?.name, role: state.session?.role, action: 'price_sheet.discard', details: 'Discarded unpublished changes to the price list' }
       );
+
+    case 'SHEET_PUBLISH': {
+      if (state.session?.role !== 'admin') return state;
+      const draft = state.sheetDraft;
+      if (!draft) return { ...state, toast: { msg: 'There is nothing saved to publish.', kind: 'error', at: Date.now() } };
+      const published = { bands: sheetBands(state.sheet), plans: state.plans };
+      const reason = draftError(published, draft);
+      if (reason) return { ...state, toast: { msg: reason, kind: 'error', at: Date.now() } };
+
+      const changes = sheetChanges(published, draft);
+      const impact = publishImpact(state.devices, changes, draft);
+      const at = nowIso();
+      // Every farmer the change touches hears about it, once, in their own words.
+      const notices = impact.map(({ farmerId, items }) => ({
+        id: uid('n'),
+        farmerId,
+        title: 'Price list updated',
+        body: `${items.join('; ')}. This applies from now on — nothing you have already paid for changes.`,
+        severity: 'info',
+        read: false,
+        at,
+      }));
+
+      const next = {
+        ...state,
+        sheet: {
+          ...state.sheet,
+          bands: draft.bands,
+          updatedAt: at, updatedBy: state.session?.name || 'admin',
+          publishedAt: at, publishedBy: state.session?.name || 'admin',
+        },
+        plans: draft.plans,
+        sheetDraft: null,
+        notifications: [...notices, ...state.notifications],
+      };
+      return withAudit(next, {
+        user: state.session?.name, role: state.session?.role, action: 'price_sheet.publish',
+        details: `Published the price list: ${changes.length} change${changes.length === 1 ? '' : 's'}${changes.length ? ` — ${changes.slice(0, 3).map((c) => describeChange(c, draft)).join('; ')}${changes.length > 3 ? `; +${changes.length - 3} more` : ''}` : ''}; ${notices.length} farmer(s) notified`,
+        prev: null, next: { changes: changes.length, notified: notices.length },
+      });
     }
 
-    case 'SHEET_RESET':
-      if (state.session?.role !== 'admin') return state;
-      return withAudit(
-        { ...state, sheet: publishedSheet() },
-        { user: state.session?.name, role: state.session?.role, action: 'price_sheet.reset', details: `Price sheet reset to ${SHEET_SOURCE}` }
-      );
 
     case 'SET_DEVICE_FARM_SIZE': {
       // The farm size is what a subscription is priced on, so it is set by
@@ -726,16 +725,6 @@ function planOf(state, id) {
 function planName(plan) {
   const own = typeof plan?.name === 'string' ? plan.name.trim() : '';
   return own || termById(plan?.id)?.name || '';
-}
-
-/** "1,000–1,199" or "16,000–and above", for the audit line of a re-ranged row. */
-function rangeLabel(band) {
-  return `${band.min.toLocaleString('en-US')}–${band.max === null ? 'and above' : band.max.toLocaleString('en-US')}`;
-}
-
-/** RWF in an audit line: a null cell is the sheet's own word for it. */
-function money(value) {
-  return value === null ? 'Customized' : `RWF ${value.toLocaleString('en-US')}`;
 }
 
 /**

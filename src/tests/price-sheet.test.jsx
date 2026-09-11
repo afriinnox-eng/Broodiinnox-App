@@ -1,17 +1,18 @@
 /**
- * The price list is editable, and it is the ONLY price in the app.
+ * The price list is edited in two steps, and the step matters.
  *
- *   INVARIANT   the sheet starts as the published sheet — every one of the 36
- *               farm sizes x 5 plans is the price the PDF prints, nothing moved;
- *               it tiles the chick range so every farm size falls in exactly one
- *               row; only an Afriinnox admin can edit it; an edit the sheet
- *               refuses changes nothing at all; and editing a price never
+ *   INVARIANT   the published list starts as the sheet the PDF prints, keeps one
+ *               row per farm size (the ranges are not editable, so no installed
+ *               system ever changes band), refuses anything that would break it,
+ *               can be changed by an Afriinnox admin and nobody else, and never
  *               re-prices a subscription or a payment already made.
- *   BEHAVIOURAL an edited price is what the farmer is shown AND what MoMo is
- *               asked for; a renamed plan or farm size reads the same on both
- *               sides; "Reset" puts the published list back.
- *   FUNCTIONAL  typing in a cell on the admin page saves it, and the farmer's
- *               own page then shows that number.
+ *               A SAVED list is a draft: farmers and the MoMo amount still see
+ *               the PUBLISHED one until the admin publishes.
+ *   BEHAVIOURAL publishing is what reaches farmers, and every farmer the change
+ *               concerns is notified in words naming what changed (plan name,
+ *               duration, the amount for their own farm size).
+ *   FUNCTIONAL  on the console: Edit, change a cell, Save, Publish — and the
+ *               farmer's own page shows the new price only after the publish.
  */
 import React from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -20,8 +21,8 @@ import { act, fireEvent, render } from '@testing-library/react';
 import { StoreProvider, useStore } from '../lib/store.jsx';
 import { buildSeed } from '../lib/seed.js';
 import {
-  BANDS, MAX_PRICE, TERMS, bandForChicks, planFrom, publishedSheet, sheetBandForChicks,
-  sheetBandIsPriced, sheetBandLabel, sheetBands, sheetPrice, sheetWithBand, sheetWithPrice,
+  BANDS, MAX_PRICE, TERMS, bandForChicks, draftError, publishedSheet, sheetBandLabel, sheetBands,
+  sheetChanges, sheetPrice, sheetWithPrice,
 } from '../lib/subscriptions.js';
 
 const KEY = 'broodiinnox_app_v1';
@@ -35,17 +36,18 @@ function Probe() {
   return null;
 }
 
-/** A mounted store, with the session and any edit already in place. */
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+/** A mounted store with the session, and optionally an already-published change. */
 function mount(session, edit) {
-  const seed = JSON.parse(JSON.stringify(buildSeed()));
+  const seed = clone(buildSeed());
   if (edit) seed.sheet = edit(seed.sheet, seed);
   localStorage.setItem(KEY, JSON.stringify({ ...seed, session, reminderSent: [] }));
   return render(<StoreProvider><Probe /></StoreProvider>);
 }
 
-function mountPage(Component, session, edit, path = '/') {
-  const seed = JSON.parse(JSON.stringify(buildSeed()));
-  if (edit) seed.sheet = edit(seed.sheet, seed);
+function mountPage(Component, session, path = '/') {
+  const seed = clone(buildSeed());
   localStorage.setItem(KEY, JSON.stringify({ ...seed, session, reminderSent: [] }));
   return render(
     <StoreProvider>
@@ -55,10 +57,7 @@ function mountPage(Component, session, edit, path = '/') {
   );
 }
 
-/**
- * Mount a page on the state the store has ALREADY saved — so a page can be
- * opened as a second user reading the same edited list, not a fresh seed.
- */
+/** Mount a page on the state the store already holds — admin edits included. */
 function mountPageOnSavedState(Component, session, path = '/') {
   const saved = JSON.parse(localStorage.getItem(KEY));
   localStorage.setItem(KEY, JSON.stringify({ ...saved, session }));
@@ -70,7 +69,47 @@ function mountPageOnSavedState(Component, session, path = '/') {
   );
 }
 
-const sheetCell = (sheet, bandId, planId) => sheetPrice(sheet, sheetBands(sheet).find((b) => b.id === bandId), planId);
+/* ------------------------------ editing helpers ------------------------------ */
+
+/** Save a working copy to the store, mutated from the draft (or the published list). */
+async function save(mutate, { dispatchFn } = {}) {
+  const source = probe.state.sheetDraft || { bands: probe.state.sheet.bands, plans: probe.state.plans };
+  const working = { bands: clone(source.bands), plans: clone(source.plans) };
+  if (mutate) mutate(working);
+  await act(async () => { (dispatchFn || probe.dispatch)({ type: 'SHEET_SAVE', bands: working.bands, plans: working.plans }); });
+  return working;
+}
+
+const setPrice = (working, bandId, planId, price) => {
+  working.bands.find((b) => b.id === bandId).prices[planId] = price;
+};
+const setLabel = (working, bandId, label) => {
+  working.bands.find((b) => b.id === bandId).label = label;
+};
+const setPlan = (working, planId, patch) => {
+  Object.assign(working.plans.find((p) => p.id === planId), patch);
+};
+
+const publish = async () => { await act(async () => { probe.dispatch({ type: 'SHEET_PUBLISH' }); }); };
+const discard = async () => { await act(async () => { probe.dispatch({ type: 'SHEET_DISCARD' }); }); };
+
+const publishedPrice = (bandId, planId) => sheetPrice({ bands: probe.state.sheet.bands }, bandId, planId);
+const draftPrice = (bandId, planId) => (probe.state.sheetDraft
+  ? sheetPrice({ bands: probe.state.sheetDraft.bands }, bandId, planId)
+  : null);
+const notificationsFor = (farmerId) => probe.state.notifications.filter((n) => n.farmerId === farmerId);
+/** Only what publishing added — the seed already carries notifications of its own. */
+const noticesFor = (farmerId) => notificationsFor(farmerId).filter((n) => n.title === 'Price list updated');
+
+/** The published list as the store holds it: the printed bands, and the app's plans. */
+const publishedList = () => ({ bands: publishedSheet().bands, plans: clone(buildSeed().plans) });
+
+/** The farmers the seed says hold a given plan. */
+const holdersOf = (planId) => [...new Set(buildSeed().devices.filter((d) => d.subscription?.planId === planId).map((d) => d.farmerId))];
+/** The farmers holding a given plan on a given farm size. */
+const holdersOfBand = (planId, bandId) => [...new Set(buildSeed().devices
+  .filter((d) => d.subscription?.planId === planId && bandForChicks(d.farmSize)?.id === bandId)
+  .map((d) => d.farmerId))];
 
 beforeEach(() => {
   localStorage.clear();
@@ -78,293 +117,421 @@ beforeEach(() => {
 });
 
 /* ------------------------------------------------------------------ */
-/* INVARIANT: as published                                             */
+/* INVARIANT: as published, and what cannot change                     */
 /* ------------------------------------------------------------------ */
 
-describe('INVARIANT: the editable sheet starts as the published sheet', () => {
-  it('reproduces the printed price of all 36 farm sizes on all 5 plans', () => {
+describe('INVARIANT: the published list is the printed sheet', () => {
+  it('reproduces the price of all 36 farm sizes on all 5 plans', () => {
     const sheet = publishedSheet();
     expect(sheet.bands).toHaveLength(36);
-    let checked = 0;
+    let priced = 0;
     for (const band of BANDS) {
       for (const term of TERMS) {
-        const cell = sheetCell(sheet, band.id, term.id);
-        const published = priceForPublished(band, term);
-        expect(cell, `${band.id} / ${term.name}`).toBe(published);
-        if (published !== null) checked++;
+        const expected = typeof band.base === 'number' ? Math.round(band.base * term.multiplier) : null;
+        expect(sheetPrice(sheet, band, term), `${band.id} / ${term.name}`).toBe(expected);
+        if (expected !== null) priced++;
       }
     }
-    expect(checked).toBe(35 * 5); // the top row is "Customized"
+    expect(priced).toBe(35 * 5);
   });
 
-  it('quotes nothing above 15,999 chicks, and never invents a price there', () => {
+  it('quotes nothing above 15,999 chicks and never invents a price there', () => {
     const sheet = publishedSheet();
     const top = sheet.bands[sheet.bands.length - 1];
     expect(top.max).toBeNull();
-    for (const term of TERMS) expect(sheetCell(sheet, top.id, term.id)).toBeNull();
-    expect(sheetBandIsPriced(sheet, top)).toBe(false);
-    expect(sheetPrice(sheet, sheetBandForChicks(sheet, 20000), planFrom(buildSeed().plans, 't30d'))).toBeNull();
+    for (const term of TERMS) expect(sheetPrice(sheet, top, term)).toBeNull();
   });
 
-  it('tiles the chick range: every count lands in exactly one row, on any sheet', () => {
-    const sheets = [
-      publishedSheet(),
-      sheetWithBand(publishedSheet(), 'b06', { min: 990, max: 1250 }),   // re-ranged
-      sheetWithBand(publishedSheet(), 'b01', { label: 'Small flock' }),  // renamed
-    ];
-    for (const sheet of sheets) {
-      const bands = sheetBands(sheet);
-      for (const n of [1, 2, 599, 600, 999, 1000, 1250, 1251, 16000, 999999]) {
+  it('keeps one row per farm size on ANY saved list: the ranges are not editable', () => {
+    const published = publishedList();
+    const tiling = (bands) => {
+      for (const n of [1, 599, 600, 1199, 1200, 16000, 999999]) {
         const hits = bands.filter((b) => n >= b.min && (b.max === null || n <= b.max));
-        expect(hits, `chicks=${n} matched ${hits.length} rows`).toHaveLength(1);
+        expect(hits, `chicks=${n}`).toHaveLength(1);
       }
-      // and the labels stay readable, however they were renamed
-      for (const band of bands) expect(sheetBandLabel(sheet, band).trim()).not.toBe('');
+    };
+    tiling(published.bands);
+
+    // a saved list that re-ranges a row, adds one, drops one or empties a name is refused
+    const attempts = [
+      (w) => { w.bands[5].min = 990; },
+      (w) => { w.bands[5].max = 1250; },
+      (w) => { w.bands.pop(); },
+      (w) => { w.bands[0].label = '   '; },
+    ];
+    for (const mutate of attempts) {
+      const working = clone(published);
+      mutate(working);
+      expect(draftError(published, working), JSON.stringify(working.bands[5])).toBeTruthy();
+    }
+    // and the list the app holds still tiles after all that
+    tiling(publishedList().bands);
+  });
+
+  it('refuses a plan that loses its name, its length, or is removed outright', () => {
+    const published = publishedList();
+    const attempts = [
+      (w) => setPlan(w, 't30d', { name: '  ' }),
+      (w) => { setPlan(w, 't30d', { name: 'Same name' }); setPlan(w, 't40d', { name: 'Same name' }); },
+      (w) => setPlan(w, 't30d', { durationDays: 0 }),
+      (w) => setPlan(w, 't30d', { durationDays: 30.5 }),
+      (w) => { w.plans = w.plans.filter((p) => p.id !== 't30d'); },
+    ];
+    for (const mutate of attempts) {
+      const working = clone(published);
+      mutate(working);
+      expect(draftError(published, working), JSON.stringify(working.plans)).toBeTruthy();
     }
   });
 });
 
 /* ------------------------------------------------------------------ */
-/* INVARIANT: refusals, authority and history                          */
+/* INVARIANT: what a save refuses, and who may save                    */
 /* ------------------------------------------------------------------ */
 
-describe('INVARIANT: what the sheet refuses, and what an edit cannot reach', () => {
-  const BAD_PRICES = [
+describe('INVARIANT: a save changes nothing it cannot justify', () => {
+  const BAD = [
     ['a negative price', -5],
     ['a fractional price', 1500.5],
-    ['not a number', 'abc'],
+    ['not a number at all', 'abc'],
     ['NaN', NaN],
-    ['Infinity', Infinity],
     ['a price above the ceiling', MAX_PRICE + 1],
   ];
 
-  it.each(BAD_PRICES)('refuses %s and leaves the sheet exactly as it was', async (_label, price) => {
-    const before = JSON.stringify(publishedSheet());
+  it.each(BAD)('refuses %s and leaves both lists exactly as they were', async (_label, price) => {
     mount(ADMIN);
-    await act(async () => { probe.dispatch({ type: 'SHEET_SET_PRICE', bandId: 'b06', planId: 't30d', price }); });
-    expect(JSON.stringify(probe.state.sheet)).toBe(before);
+    const before = JSON.stringify({ sheet: probe.state.sheet, plans: probe.state.plans });
+    await save((w) => setPrice(w, 'b06', 't30d', price));
+    expect(JSON.stringify({ sheet: probe.state.sheet, plans: probe.state.plans })).toBe(before);
+    expect(probe.state.sheetDraft ?? null).toBeNull();
     expect(probe.state.toast?.kind).toBe('error');
     expect(probe.state.toast.msg.length).toBeGreaterThan(10);
   });
 
-  const BAD_ROWS = [
-    ['an empty name', { label: '   ' }],
-    ['a first row that does not start at 1', { min: 0 }],
-    ['a range that opens the wrong end of a row and overlaps its neighbour', { min: 500 }],
-    ['a maximum below its minimum', { min: 1200, max: 1100 }],
-    ['closing the top row', { max: 20000 }],
-  ];
-
-  it.each(BAD_ROWS)('refuses %s and leaves the sheet exactly as it was', async (_label, patch) => {
-    const before = JSON.stringify(publishedSheet());
-    mount(ADMIN);
-    const bandId = patch.max === 20000 ? 'b36' : 'b06';
-    await act(async () => { probe.dispatch({ type: 'SHEET_SET_BAND', bandId, patch }); });
-    expect(JSON.stringify(probe.state.sheet)).toBe(before);
-    expect(probe.state.toast?.kind).toBe('error');
-  });
-
-  it('lets no one but an admin touch the list', async () => {
-    const before = JSON.stringify(publishedSheet());
+  it('lets no one but an admin save, discard or publish', async () => {
     mount(FARMER);
-    await act(async () => { probe.dispatch({ type: 'SHEET_SET_PRICE', bandId: 'b06', planId: 't30d', price: 1 }); });
-    await act(async () => { probe.dispatch({ type: 'SHEET_SET_BAND', bandId: 'b06', patch: { label: 'Mine now' } }); });
-    await act(async () => { probe.dispatch({ type: 'SHEET_RESET' }); });
+    const before = JSON.stringify(probe.state.sheet);
+    await save((w) => setPrice(w, 'b06', 't30d', 1));
+    await publish();
+    await discard();
     expect(JSON.stringify(probe.state.sheet)).toBe(before);
+    expect(probe.state.sheetDraft ?? null).toBeNull();
+    expect(probe.state.notifications).toHaveLength(buildSeed().notifications.length);
   });
 
-  it('never re-prices what was already sold, however the list is edited', async () => {
+  it('needs a saved list before it will publish or discard one', async () => {
+    mount(ADMIN);
+    await publish();
+    expect(probe.state.toast?.kind).toBe('error');
+    expect(probe.state.toast.msg).toMatch(/nothing saved to publish/i);
+    await discard();
+    expect(probe.state.toast.msg).toMatch(/nothing saved to discard/i);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* INVARIANT: a draft is private until it is published                 */
+/* ------------------------------------------------------------------ */
+
+describe('INVARIANT: a saved list is the admin\'s alone until published', () => {
+  it('leaves the farmer, and the amount MoMo is asked for, on the published price', async () => {
+    mount(ADMIN);
+    await save((w) => setPrice(w, 'b06', 't30d', 60000));
+    expect(draftPrice('b06', 't30d')).toBe(60000);   // saved…
+    expect(publishedPrice('b06', 't30d')).toBe(52800); // …not published
+    const saved = JSON.parse(localStorage.getItem(KEY));
+
+    // the farmer's page
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const out = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
+    const shops = [...out.container.querySelectorAll('.table-wrap table')]
+      .filter((tb) => /Your price/.test(tb.textContent)).map((tb) => tb.textContent).join(' ');
+    expect(shops).toMatch(/RWF 52,800/);
+    expect(shops).not.toMatch(/RWF 60,000/);
+    out.unmount();
+
+    // and what a payment asks for
+    localStorage.setItem(KEY, JSON.stringify({ ...saved, session: FARMER }));
+    render(<StoreProvider><Probe /></StoreProvider>);
+    await act(async () => {
+      probe.dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f1', deviceId: 'BRD001', planId: 't30d', phone: '0788123456' });
+    });
+    expect(probe.state.payments[0].amount).toBe(52800);
+  });
+
+  it('reaches the farmer and the amount charged the moment it is published', async () => {
+    mount(ADMIN);
+    await save((w) => setPrice(w, 'b06', 't30d', 60000));
+    await publish();
+    expect(probe.state.sheetDraft).toBeNull();
+    expect(publishedPrice('b06', 't30d')).toBe(60000);
+
+    const saved = JSON.parse(localStorage.getItem(KEY));
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const out = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
+    const shops = [...out.container.querySelectorAll('.table-wrap table')]
+      .filter((tb) => /Your price/.test(tb.textContent)).map((tb) => tb.textContent).join(' ');
+    expect(shops).toMatch(/RWF 60,000/);
+    out.unmount();
+
+    localStorage.setItem(KEY, JSON.stringify({ ...saved, session: FARMER }));
+    render(<StoreProvider><Probe /></StoreProvider>);
+    await act(async () => {
+      probe.dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f1', deviceId: 'BRD001', planId: 't30d', phone: '0788123456' });
+    });
+    expect(probe.state.payments[0].amount).toBe(60000);
+  });
+
+  it('never re-prices what was already sold, however the list is changed', async () => {
     mount(ADMIN);
     const before = {
       subs: probe.state.devices.map((d) => d.subscription?.price ?? null),
       payments: probe.state.payments.map((p) => p.amount),
     };
-    await act(async () => {
-      probe.dispatch({ type: 'SHEET_SET_PRICE', bandId: 'b06', planId: 't30d', price: 999999 });
-      probe.dispatch({ type: 'SHEET_SET_BAND', bandId: 'b06', patch: { label: 'Renamed row' } });
-    });
+    await save((w) => { setPrice(w, 'b06', 't30d', 999999); setPlan(w, 't30d', { name: 'Monthly Plan', durationDays: 45 }); });
+    await publish();
     expect(probe.state.devices.map((d) => d.subscription?.price ?? null)).toEqual(before.subs);
     expect(probe.state.payments.map((p) => p.amount)).toEqual(before.payments);
-    // the new price is what is quoted now, though
-    expect(sheetCell(probe.state.sheet, 'b06', 't30d')).toBe(999999);
+    expect(publishedPrice('b06', 't30d')).toBe(999999);
   });
 
-  it('records who changed the list, and resets to the published one', async () => {
+  it('keeps a saved list across a reload, and copes with a state saved before this existed', async () => {
     mount(ADMIN);
-    await act(async () => { probe.dispatch({ type: 'SHEET_SET_PRICE', bandId: 'b06', planId: 't30d', price: 60000 }); });
-    expect(probe.state.sheet.updatedBy).toBe(ADMIN.name);
-    expect(probe.state.sheet.updatedAt).toBeTruthy();
-    expect(probe.state.audit[0].action).toBe('price_sheet.price');
-    expect(probe.state.audit[0].details).toMatch(/RWF 52,800 → RWF 60,000/);
+    await save((w) => setPrice(w, 'b06', 't30d', 60000));
 
-    await act(async () => { probe.dispatch({ type: 'SHEET_RESET' }); });
-    expect(JSON.stringify(probe.state.sheet)).toBe(JSON.stringify(publishedSheet()));
-    expect(probe.state.audit[0].action).toBe('price_sheet.reset');
-  });
-
-  it('survives a reload, and an older browser that saved no list gets the published one', async () => {
-    mount(ADMIN);
-    await act(async () => { probe.dispatch({ type: 'SHEET_SET_PRICE', bandId: 'b06', planId: 't30d', price: 60000 }); });
-
-    // a fresh store, reading the same localStorage
     const out = render(<StoreProvider><Probe /></StoreProvider>);
-    expect(sheetCell(probe.state.sheet, 'b06', 't30d')).toBe(60000);
+    expect(draftPrice('b06', 't30d')).toBe(60000);
+    expect(publishedPrice('b06', 't30d')).toBe(52800);
     out.unmount();
 
-    // a state saved before the list was editable carries no sheet
-    const legacy = { ...JSON.parse(localStorage.getItem(KEY)) };
-    delete legacy.sheet;
+    const legacy = JSON.parse(localStorage.getItem(KEY));
+    delete legacy.sheetDraft;
     localStorage.setItem(KEY, JSON.stringify(legacy));
     render(<StoreProvider><Probe /></StoreProvider>);
-    expect(probe.state.sheet.bands).toHaveLength(36);
-    expect(sheetCell(probe.state.sheet, 'b06', 't30d')).toBe(52800);
+    expect(probe.state.sheetDraft ?? null).toBeNull();
+    expect(sheetBands(probe.state.sheet)).toHaveLength(36);
   });
 });
 
 /* ------------------------------------------------------------------ */
-/* BEHAVIOURAL: the edited list is what the farmer is shown and charged */
+/* BEHAVIOURAL: publishing tells the farmers it concerns               */
 /* ------------------------------------------------------------------ */
 
-describe('BEHAVIOURAL: an edited price is the price the farmer meets', () => {
-  const editThirtyDay = (sheet) => sheetWithPrice(sheet, 'b06', 't30d', 60000);
-
-  it('shows the edited price on the farmer page, and still shows what was paid', async () => {
-    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
-    const out = mountPage(FarmerSubscriptions, FARMER, editThirtyDay, '/farmer/subscriptions');
-
-    // BRD001 is registered in the 1,000–1,199 chicks band: the plans it can buy
-    // now cost the edited price, and no longer quote the old one…
-    const shops = [...out.container.querySelectorAll('.table-wrap table')]
-      .filter((t) => /Your price/.test(t.textContent))
-      .map((t) => t.textContent).join(' ');
-    expect(shops).toMatch(/RWF 60,000/);
-    expect(shops).not.toMatch(/RWF 52,800/);
-    // …while the 15-Day column and every other farm size are untouched
-    expect(shops).toMatch(/RWF 33,000/);
-    // and the history still shows the price that was actually paid — an edit
-    // never rewrites what a farmer has already bought
-    expect(out.getAllByText('RWF 52,800').length).toBeGreaterThan(0);
-  });
-
-  it('charges exactly the edited price when MoMo is asked for', async () => {
-    mount(FARMER, editThirtyDay);
-    await act(async () => {
-      probe.dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f1', deviceId: 'BRD001', planId: 't30d', phone: '0788123456' });
-    });
-    const payment = probe.state.payments[0];
-    expect(payment.deviceId).toBe('BRD001');
-    expect(payment.amount).toBe(60000);
-    expect(payment.bandId).toBe('b06');
-    expect(payment.period).toMatch(/30-Day Plan — 1,000–1,199 chicks/);
-  });
-
-  it('refuses to charge where the list quotes nothing', async () => {
-    mount(FARMER, (sheet) => sheetWithPrice(sheet, 'b06', 't30d', null));
-    await act(async () => {
-      probe.dispatch({ type: 'REQUEST_PAYMENT', farmerId: 'f1', deviceId: 'BRD001', planId: 't30d', phone: '0788123456' });
-    });
-    expect(probe.state.payments.filter((p) => p.deviceId === 'BRD001' && p.status === 'pending')).toHaveLength(0);
-    expect(probe.state.toast.msg).toMatch(/quoted individually/i);
-  });
-
-  it('reads a renamed plan and a renamed farm size the same on both sides', async () => {
-    const rename = (sheet) => {
-      const renamed = sheetWithBand(sheet, 'b06', { label: '1,000 to 1,199 birds' });
-      return renamed;
-    };
-    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
-    const farmer = mountPage(FarmerSubscriptions, FARMER, rename, '/farmer/subscriptions');
-    expect(farmer.getAllByText(/1,000 to 1,199 birds/).length).toBeGreaterThan(0);
-    farmer.unmount();
-
-    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
-    const admin = mountPage(AdminSubscriptions, ADMIN, rename, '/admin/subscriptions');
-    expect(admin.getAllByText(/1,000 to 1,199 birds/).length).toBeGreaterThan(0);
-  });
-
-  it('renames a plan column everywhere when the admin renames it', async () => {
+describe('BEHAVIOURAL: publishing notifies the farmers it concerns', () => {
+  it('tells every farmer on a renamed plan what it is called now, and no one else', async () => {
     mount(ADMIN);
-    await act(async () => { probe.dispatch({ type: 'UPDATE_PLAN', id: 't30d', patch: { name: 'Monthly Plan' } }); });
-    expect(probe.state.plans.find((p) => p.id === 't30d').name).toBe('Monthly Plan');
-    expect(probe.state.audit[0].action).toBe('plan.rename');
-    expect(probe.state.audit[0].details).toMatch(/30-Day Plan → Monthly Plan/);
+    await save((w) => setPlan(w, 't30d', { name: 'Monthly Plan' }));
+    await publish();
 
-    // the farmer, opening their own page on the same state, reads the new name
-    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
-    const farmer = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
-    expect(farmer.getAllByText('Monthly Plan').length).toBeGreaterThan(0);
-    expect(farmer.queryByText('30-Day Plan')).toBeNull();
+    const holders = holdersOf('t30d');
+    expect(holders.length).toBeGreaterThan(0);
+    const others = [...new Set(buildSeed().devices.map((d) => d.farmerId))].filter((f) => !holders.includes(f));
+    for (const farmerId of holders) {
+      const mine = noticesFor(farmerId);
+      expect(mine).toHaveLength(1);
+      expect(mine[0].title).toBe('Price list updated');
+      expect(mine[0].body).toMatch(/your plan is now called Monthly Plan \(it was 30-Day Plan\)/);
+      expect(mine[0].read).toBe(false);
+    }
+    for (const farmerId of others) expect(noticesFor(farmerId)).toHaveLength(0);
+  });
+
+  it('tells only the farmers whose own farm size and plan moved, with both amounts', async () => {
+    mount(ADMIN);
+    await save((w) => setPrice(w, 'b06', 't30d', 60000));
+    await publish();
+
+    const affected = holdersOfBand('t30d', 'b06');
+    expect(affected.length).toBeGreaterThan(0);
+    const holders = holdersOf('t30d');
+    for (const farmerId of affected) {
+      const body = noticesFor(farmerId)[0]?.body || '';
+      expect(body).toMatch(/the 30-Day Plan price for 1,000–1,199 chicks is now RWF 60,000 \(it was RWF 52,800\)/);
+      expect(body).toMatch(/nothing you have already paid for changes/);
+    }
+    // the same plan on a different farm size is not this farmer's business
+    for (const farmerId of holders.filter((f) => !affected.includes(f))) {
+      expect(noticesFor(farmerId)).toHaveLength(0);
+    }
+  });
+
+  it('tells a farmer when the name of their own farm size changes', async () => {
+    mount(ADMIN);
+    await save((w) => setLabel(w, 'b01', 'Starter flock (up to 599)'));
+    await publish();
+    const inBand = [...new Set(buildSeed().devices.filter((d) => bandForChicks(d.farmSize)?.id === 'b01').map((d) => d.farmerId))];
+    expect(inBand.length).toBeGreaterThan(0);
+    for (const farmerId of inBand) {
+      expect(noticesFor(farmerId)[0]?.body).toMatch(/the farm size "Up to 599 chicks" is now called "Starter flock \(up to 599\)"/);
+    }
+  });
+
+  it('notifies nobody when nothing changed, and discarding leaves the published list alone', async () => {
+    mount(ADMIN);
+    const before = JSON.stringify(probe.state.sheet.bands);
+    await save();
+    expect(probe.state.sheetDraft).toBeTruthy();
+    expect(sheetChanges({ bands: probe.state.sheet.bands, plans: probe.state.plans }, probe.state.sheetDraft)).toEqual([]);
+    await publish();
+    expect(noticesFor('f1')).toHaveLength(0);
+    expect(probe.state.notifications).toHaveLength(buildSeed().notifications.length);
+
+    await save((w) => setPrice(w, 'b06', 't30d', 60000));
+    await discard();
+    expect(probe.state.sheetDraft ?? null).toBeNull();
+    expect(JSON.stringify(probe.state.sheet.bands)).toBe(before);
+  });
+
+  it('records the save and the publish in the audit log', async () => {
+    mount(ADMIN);
+    await save((w) => setPrice(w, 'b06', 't30d', 60000));
+    expect(probe.state.audit[0].action).toBe('price_sheet.save');
+    expect(probe.state.audit[0].details).toMatch(/1 unpublished change/);
+    expect(probe.state.audit[0].details).toMatch(/now RWF 60,000 \(it was RWF 52,800\)/);
+
+    await publish();
+    expect(probe.state.audit[0].action).toBe('price_sheet.publish');
+    expect(probe.state.audit[0].details).toMatch(/1 change/);
+    expect(probe.state.audit[0].details).toMatch(/\d+ farmer\(s\) notified/);
+    expect(probe.state.sheet.publishedBy).toBe(ADMIN.name);
   });
 });
 
 /* ------------------------------------------------------------------ */
-/* FUNCTIONAL: typing in the admin page's own cell                     */
+/* FUNCTIONAL: the console itself                                      */
 /* ------------------------------------------------------------------ */
 
-describe('FUNCTIONAL: the admin types a price into the list itself', () => {
-  it('saves it on blur, and the farmer page then shows that number', async () => {
+describe('FUNCTIONAL: Edit, Save, Publish on the console', () => {
+  it('shows the table as text with one Edit button, and turns it into fields on Edit', async () => {
     const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
-    const admin = mountPage(AdminSubscriptions, ADMIN, null, '/admin/subscriptions');
+    const out = mountPage(AdminSubscriptions, ADMIN, '/admin/subscriptions');
 
-    const cell = admin.container.querySelector('input[aria-label="30-Day Plan — 1,000–1,199 chicks"]');
+    // the list reads as it did: text, and only one Edit button
+    const priceCells = () => [...out.container.querySelectorAll('input.cell-input')];
+    expect(priceCells()).toHaveLength(0);
+    // exactly one Edit button, top right of the list
+    expect(out.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
+    expect(out.container.textContent).toMatch(/1,000–1,199 chicks/);
+
+    fireEvent.click(out.getByRole('button', { name: 'Edit' }));
+    const cell = out.container.querySelector('input[aria-label="30-Day Plan — 1,000–1,199 chicks"]');
     expect(cell).toBeTruthy();
     expect(cell.value).toBe('52800');
-
-    fireEvent.focus(cell);
-    fireEvent.change(cell, { target: { value: '60000' } });
-    fireEvent.blur(cell);
-    await act(async () => {});
-
-    expect(sheetCell(probe.state.sheet, 'b06', 't30d')).toBe(60000);
-    expect(admin.container.querySelector('input[aria-label="30-Day Plan — 1,000–1,199 chicks"]').value).toBe('60000');
-    admin.unmount();
-
-    // the farmer opens their page on the same state: the saved price is theirs
-    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
-    const farmer = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
-    expect(farmer.getAllByText('RWF 60,000').length).toBeGreaterThan(0);
+    // the size column is a name field only — no second line of numbers
+    expect(out.container.querySelectorAll('input[aria-label="Farm size name"]')).toHaveLength(36);
+    expect(out.container.querySelector('input[aria-label*="chicks from"]')).toBeNull();
+    expect(out.container.querySelector('input[aria-label*="chicks to"]')).toBeNull();
   });
 
-  it('renames a farm size from the same row, on screen, and the farmer reads it', async () => {
+  it('saves the change to the console only, then publishes it to the farmer', async () => {
     const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
-    const admin = mountPage(AdminSubscriptions, ADMIN, null, '/admin/subscriptions');
+    const out = mountPage(AdminSubscriptions, ADMIN, '/admin/subscriptions');
 
-    const nameInput = admin.container.querySelector('input[aria-label="Farm size name"]');
-    expect(nameInput.value).toBe('Up to 599 chicks');
-    fireEvent.focus(nameInput);
-    fireEvent.change(nameInput, { target: { value: 'Starter flock (up to 599)' } });
-    fireEvent.blur(nameInput);
+    fireEvent.click(out.getByRole('button', { name: 'Edit' }));
+    const cell = out.container.querySelector('input[aria-label="30-Day Plan — 1,000–1,199 chicks"]');
+    fireEvent.change(cell, { target: { value: '60000' } });
+    fireEvent.click(out.getByRole('button', { name: 'Save' }));
     await act(async () => {});
 
-    expect(sheetBandLabel(probe.state.sheet, sheetBands(probe.state.sheet)[0])).toBe('Starter flock (up to 599)');
+    expect(draftPrice('b06', 't30d')).toBe(60000);
+    expect(publishedPrice('b06', 't30d')).toBe(52800);
+    expect(out.container.textContent).toMatch(/not published yet/);
+    expect(out.getByRole('button', { name: /^Publish/ })).toBeTruthy();
+    // the console now shows the saved number
+    expect(out.container.textContent).toMatch(/RWF 60,000/);
+    out.unmount();
+
+    // the farmer still pays the published price
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const beforePublish = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
+    expect([...beforePublish.container.querySelectorAll('table tbody tr')].map((r) => r.textContent).join(' ')).toMatch(/RWF 52,800/);
+    beforePublish.unmount();
+
+    // publish, and the farmer sees it
+    const admin = mountPageOnSavedState(AdminSubscriptions, ADMIN, '/admin/subscriptions');
+    fireEvent.click(admin.getByRole('button', { name: /^Publish/ }));   // the list's Publish
+    fireEvent.click(admin.getByRole('button', { name: 'Publish' }));     // the confirmation
+    await act(async () => {});
+    expect(publishedPrice('b06', 't30d')).toBe(60000);
     admin.unmount();
+
+    const after = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
+    expect(after.getAllByText('RWF 60,000').length).toBeGreaterThan(0);
+  });
+
+  it('refuses a typo at Save, says why, and keeps the numbers', async () => {
+    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
+    const out = mountPage(AdminSubscriptions, ADMIN, '/admin/subscriptions');
+
+    fireEvent.click(out.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(out.container.querySelector('input[aria-label="30-Day Plan — 1,000–1,199 chicks"]'), { target: { value: '52 800' } });
+    fireEvent.click(out.getByRole('button', { name: 'Save' }));
+    await act(async () => {});
+
+    expect(probe.state.sheetDraft ?? null).toBeNull();
+    expect(probe.state.toast?.kind).toBe('error');
+    expect(probe.state.toast.msg).toMatch(/30-Day Plan for 1,000–1,199 chicks/);
+    // still editing, with the published numbers intact
+    expect(publishedPrice('b06', 't30d')).toBe(52800);
+  });
+
+  it('renames a plan inside the edit session and it reaches the farmer after publishing', async () => {
+    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
+    const out = mountPage(AdminSubscriptions, ADMIN, '/admin/subscriptions');
+
+    fireEvent.click(out.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(out.getByRole('button', { name: '30-Day Plan' }));   // the column header opens the plan
+    const nameField = out.container.querySelector('.modal input');
+    fireEvent.change(nameField, { target: { value: 'Monthly Plan' } });
+    fireEvent.click(out.getByRole('button', { name: 'Save to the list' }));
+    await act(async () => {});
+    fireEvent.click(out.getByRole('button', { name: 'Save' }));
+    await act(async () => {});
+
+    expect(probe.state.sheetDraft.plans.find((p) => p.id === 't30d').name).toBe('Monthly Plan');
+    expect(probe.state.plans.find((p) => p.id === 't30d').name).toBe('30-Day Plan'); // still published
+
+    // publish from the same console: the list, then the confirmation
+    fireEvent.click(out.getByRole('button', { name: /^Publish/ }));
+    fireEvent.click(out.getByRole('button', { name: 'Publish' }));
+    await act(async () => {});
+    expect(probe.state.plans.find((p) => p.id === 't30d').name).toBe('Monthly Plan');
+    out.unmount();
+
+    const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
+    const farmer = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
+    expect(farmer.getAllByText(/Monthly Plan/).length).toBeGreaterThan(0);
+    expect(farmer.queryByText('30-Day Plan')).toBeNull();
+  });
+
+  it('labels the farm size row, and the farmer reads the new name after publishing', async () => {
+    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
+    const out = mountPage(AdminSubscriptions, ADMIN, '/admin/subscriptions');
+
+    fireEvent.click(out.getByRole('button', { name: 'Edit' }));
+    const nameField = out.container.querySelector('input[aria-label="Farm size name"]');
+    expect(nameField.value).toBe('Up to 599 chicks');
+    fireEvent.change(nameField, { target: { value: 'Starter flock (up to 599)' } });
+    fireEvent.click(out.getByRole('button', { name: 'Save' }));
+    await act(async () => {});
+    expect(sheetBandLabel({ bands: probe.state.sheetDraft.bands }, { label: 'Starter flock (up to 599)' })).toBe('Starter flock (up to 599)');
+
+    fireEvent.click(out.getByRole('button', { name: /^Publish/ }));
+    fireEvent.click(out.getByRole('button', { name: 'Publish' }));
+    await act(async () => {});
+    out.unmount();
 
     const { default: FarmerSubscriptions } = await import('../pages/farmer/Subscriptions.jsx');
     const farmer = mountPageOnSavedState(FarmerSubscriptions, FARMER, '/farmer/subscriptions');
     expect(farmer.getAllByText(/Starter flock \(up to 599\)/).length).toBeGreaterThan(0);
   });
-
-  it('refuses a typo in the cell, says why, and keeps the old price', async () => {
-    const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
-    const admin = mountPage(AdminSubscriptions, ADMIN, null, '/admin/subscriptions');
-
-    const cell = admin.container.querySelector('input[aria-label="30-Day Plan — 1,000–1,199 chicks"]');
-    fireEvent.focus(cell);
-    fireEvent.change(cell, { target: { value: '52 800 RWF' } });
-    fireEvent.blur(cell);
-    await act(async () => {});
-
-    expect(sheetCell(probe.state.sheet, 'b06', 't30d')).toBe(52800); // unchanged
-    expect(probe.state.toast?.kind).toBe('error');
-  });
 });
 
-/** The published sheet's own arithmetic (base x multiplier), for comparison. */
-function priceForPublished(band, term) {
-  if (typeof band.base !== 'number') return null;
-  const price = Math.round(band.base * term.multiplier);
-  return Number.isFinite(price) ? price : null;
-}
-
-/* keeps the exported-but-unused import honest in the lint-free sense */
-void bandForChicks;
+/* keeps the published-list fixture helper honest: an already-published change */
+describe('a published change, as the store would hold it', () => {
+  it('is what an edited-and-published list looks like', () => {
+    const edited = sheetWithPrice(publishedSheet(), 'b06', 't30d', 60000);
+    expect(sheetPrice(edited, 'b06', 't30d')).toBe(60000);
+    expect(sheetPrice(edited, 'b06', 't15d')).toBe(33000);
+  });
+});

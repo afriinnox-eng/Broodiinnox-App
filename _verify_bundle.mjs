@@ -251,28 +251,47 @@ const dom3 = boot('#/admin/subscriptions', { ...appState, session: adminSession 
 const win3 = dom3.window;
 const doc3 = win3.document;
 const wait3 = waiter(win3, doc3, 'the admin price list');
+const button = (doc, name) => [...doc.querySelectorAll('button')].find((b) => b.textContent.trim() === name) || null;
+const tap = (win, el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win }));
 const CELL_LABEL = '30-Day Plan — 1,000–1,199 chicks';
 const cellFor = (doc) => [...doc.querySelectorAll('input.cell-input')]
   .find((i) => i.getAttribute('aria-label') === CELL_LABEL) || null;
-await wait3(() => doc3.querySelectorAll('input.cell-input').length);
-console.log('[bundle] the admin price list rendered with', doc3.querySelectorAll('input.cell-input').length, 'editable cells');
+const appStateNow = () => JSON.parse(win3.localStorage.getItem('broodiinnox_app_v1'));
+const priceIn = (bands, bandId, planId) => bands.find((b) => b.id === bandId).prices[planId];
+
+// the list reads as text, with one Edit button and no fields
+const editBtn = await wait3(() => button(doc3, 'Edit'));
+console.log(`[bundle] the admin price list is read-only until Edit: price fields on screen = ${doc3.querySelectorAll('input.cell-input.price').length}`);
+if (doc3.querySelectorAll('input.cell-input.price').length !== 0) fail('the price list is editable without pressing Edit');
+
+tap(win3, editBtn);
+await wait3(() => doc3.querySelectorAll('input.cell-input.price').length === 36 * 5);
+console.log(`[bundle] after Edit: ${doc3.querySelectorAll('input.cell-input.price').length} price fields, ${doc3.querySelectorAll('input[aria-label="Farm size name"]').length} farm-size names`);
+if (doc3.querySelectorAll('input[aria-label*="chicks from"]').length !== 0) fail('the farm-size cell still carries a second line of range fields');
+
 const cell = await wait3(() => cellFor(doc3));
 const before = cell.value;
-// focus first: the cell saves on blur, and blur() does nothing to an unfocused
-// element, so React's onBlur would never fire
 cell.focus();
 typeInto(win3, cell, '60000');
 cell.blur();
-const committed = await wait3(
-  (() => { try { return cellFor(doc3)?.value === '60000' && JSON.parse(win3.localStorage.getItem('broodiinnox_app_v1')).sheet.bands.find((b) => b.id === 'b06').prices.t30d === 60000; } catch { return false; } }),
-);
-const editedState = JSON.parse(win3.localStorage.getItem('broodiinnox_app_v1'));
-const saved = editedState.sheet.bands.find((b) => b.id === 'b06').prices.t30d;
-console.log(`[bundle] admin edited the list: 30-Day at 1,000–1,199 chicks ${before} -> ${saved}, saved by ${editedState.sheet.updatedBy}`);
-if (saved !== 60000) fail('the admin\'s edit was not saved to the price list');
+tap(win3, button(doc3, 'Save'));
+await wait3(() => { try { return priceIn(appStateNow().sheetDraft.bands, 'b06', 't30d') === 60000; } catch { return false; } });
+const afterSave = appStateNow();
+console.log(`[bundle] Save: draft 30-Day at 1,000–1,199 chicks ${before} -> ${priceIn(afterSave.sheetDraft.bands, 'b06', 't30d')} by ${afterSave.sheetDraft.savedBy}; published list still ${priceIn(afterSave.sheet.bands, 'b06', 't30d')}`);
+if (priceIn(afterSave.sheet.bands, 'b06', 't30d') !== 52800) fail('a saved (unpublished) list changed what is published');
+
+// the farmer, on the same bundle, must still be on the published price
+tap(win3, await wait3(() => [...doc3.querySelectorAll('button')].find((b) => /^Publish/.test(b.textContent.trim())) || null));
+const confirm = await wait3(() => [...doc3.querySelectorAll('.modal button')].find((b) => b.textContent.trim() === 'Publish') || null);
+tap(win3, confirm);
+await wait3(() => { try { return priceIn(appStateNow().sheet.bands, 'b06', 't30d') === 60000; } catch { return false; } });
+const published = appStateNow();
+const notified = published.notifications.filter((n) => n.title === 'Price list updated');
+console.log(`[bundle] Publish: the list is live (draft cleared=${!published.sheetDraft}, published by ${published.sheet.publishedBy}) and ${notified.length} farmer(s) were told: ${JSON.stringify(notified[0]?.body || '')}`);
+if (!notified.length) fail('publishing the price list notified nobody');
 win3.close();
 
-const dom4 = boot('#/farmer/subscriptions', { ...editedState, session: appState.session });
+const dom4 = boot('#/farmer/subscriptions', { ...published, session: appState.session });
 const win4 = dom4.window;
 const doc4 = win4.document;
 const wait4 = waiter(win4, doc4, 'the farmer subscription page');
@@ -283,7 +302,7 @@ const planText = async () => (await wait4(() => {
 const shown = await planText();
 const paysNew = /RWF 60,000/.test(shown);
 const paysOld = /RWF 52,800/.test(shown);
-console.log(`[bundle] the farmer, on the same bundle: shows the edited price=${paysNew}, still shows the old one=${paysOld}`);
+console.log(`[bundle] the farmer, on the same bundle: shows the published price=${paysNew}, still shows the old one=${paysOld}`);
 if (!paysNew || paysOld) fail('the farmer does not see the price the admin published on the price list');
 win4.close();
 

@@ -340,46 +340,142 @@ export function priceEditError(price) {
   return null;
 }
 
+/* ------------------ saving, publishing and telling farmers ---------------- */
+
+/** A plan's name as the list has it, or the published one — for a message about the list. */
+function listPlanName(plan) {
+  const own = typeof plan?.name === 'string' ? plan.name.trim() : '';
+  return own || termById(plan?.id)?.name || plan?.id || 'That plan';
+}
+
 /**
- * Why these bands are not a usable price list, or null when they are.
+ * Why a working copy of the list cannot be SAVED, or null when it can.
  *
- * Every chick count must fall in exactly ONE band, so the rows have to tile the
- * range: whole numbers, sorted, starting at 1, each row picking up where the
- * last one stopped, and only the top row open-ended. A gap would leave a farm
- * size with no price at all; an overlap would give it two.
+ * The admin renames farm sizes, re-prices them and renames or re-times plans.
+ * The RANGES are the published ones and stay that way: a row covers the farm
+ * sizes it always did, so no installed system changes band because of an edit,
+ * and the rows keep tiling the chick range with no gap and no overlap.
+ *
+ * `published` and `draft` are both { bands, plans }.
  */
-export function sheetTilingError(bands) {
-  if (!Array.isArray(bands) || bands.length !== BANDS.length) return 'The price list must keep one row per farm size.';
-  if (new Set(bands.map((b) => b.id)).size !== bands.length) return 'Two rows share the same farm size.';
-  const sorted = [...bands].sort((a, b) => a.min - b.min);
-  if (sorted[0].min !== 1) return 'The first row must start at 1 chick.';
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1];
-    if (prev.max === null) return `Only the top row can be open-ended — ${sheetBandLabel(null, prev)} has no upper limit.`;
-    if (sorted[i].min !== prev.max + 1) {
-      return `The rows must run without a gap or an overlap: ${sheetBandLabel(null, prev)} ends at ${prev.max.toLocaleString('en-US')}, the next row starts at ${sorted[i].min.toLocaleString('en-US')}.`;
+export function draftError(published, draft) {
+  const publishedBands = Array.isArray(published?.bands) ? published.bands : [];
+  const publishedPlans = Array.isArray(published?.plans) ? published.plans : [];
+  const bands = draft?.bands;
+  const plans = draft?.plans;
+  if (!Array.isArray(bands) || bands.length !== publishedBands.length) return 'The price list must keep one row per farm size.';
+  if (!Array.isArray(plans) || plans.length === 0) return 'The price list must keep at least one plan.';
+
+  const planIds = new Set(plans.map((p) => p.id));
+  for (const plan of publishedPlans) {
+    if (!planIds.has(plan.id)) return `${listPlanName(plan)} cannot be removed from the list — set its prices to "Customized" instead.`;
+  }
+  const names = plans.map((p) => String(p?.name || '').trim());
+  if (names.some((n) => n === '')) return 'Every plan needs a name.';
+  if (new Set(names).size !== names.length) return 'Two plans cannot share a name.';
+  for (const plan of plans) {
+    const days = plan?.durationDays;
+    if (!Number.isInteger(days) || days < 1) return `${listPlanName(plan)} must last a whole number of days, at least 1.`;
+  }
+
+  for (const band of bands) {
+    const was = publishedBands.find((b) => b.id === band?.id);
+    if (!was) return 'A farm size is missing from the price list.';
+    if (band.min !== was.min || band.max !== was.max) return 'The farm sizes themselves cannot be changed here — rename the row instead.';
+    if (String(band?.label || '').trim() === '') return `${bandLabel(was)} needs a name.`;
+    for (const plan of plans) {
+      const reason = priceEditError(band?.prices ? band.prices[plan.id] ?? null : null);
+      if (reason) return `${listPlanName(plan)} for ${band.label}: ${reason}`;
     }
   }
-  if (sorted[sorted.length - 1].max !== null) return 'The top row must stay open-ended (16,000+ chicks and above).';
   return null;
 }
 
-/** Why this edit to one row cannot be saved, or null when it can. */
-export function bandEditError(sheet, bandId, patch = {}) {
-  const band = sheetBandById(sheet, bandId);
-  if (!band) return 'That farm size is not on the sheet.';
-  if (patch.label !== undefined && String(patch.label).trim() === '') return 'A farm size needs a name.';
-  for (const key of ['min', 'max']) {
-    const value = patch[key];
-    if (value === undefined || value === band[key]) continue;
-    if (value === null && key === 'max') continue;
-    if (!Number.isInteger(value) || value < 1) return key === 'min' ? 'The smallest farm size must be a whole number of chicks, at least 1.' : 'The largest farm size must be a whole number of chicks.';
+/** Every difference between the published list and a working copy. */
+export function sheetChanges(published, draft) {
+  const changes = [];
+  const draftBands = Array.isArray(draft?.bands) ? draft.bands : [];
+  const draftPlans = Array.isArray(draft?.plans) ? draft.plans : [];
+  const wasPlan = new Map((published?.plans || []).map((p) => [p.id, p]));
+  const wasBand = new Map((published?.bands || []).map((b) => [b.id, b]));
+  const before = { bands: published?.bands || [] };
+  const after = { bands: draftBands };
+
+  for (const plan of draftPlans) {
+    const was = wasPlan.get(plan.id);
+    if (!was) { changes.push({ kind: 'plan.added', planId: plan.id, to: plan.name }); continue; }
+    if (was.name !== plan.name) changes.push({ kind: 'plan.name', planId: plan.id, from: was.name, to: plan.name });
+    if (was.durationDays !== plan.durationDays) changes.push({ kind: 'plan.days', planId: plan.id, from: was.durationDays, to: plan.durationDays });
+    if ((was.description || '') !== (plan.description || '')) {
+      changes.push({ kind: 'plan.description', planId: plan.id, from: was.description || '', to: plan.description || '' });
+    }
   }
-  const patched = sheetBands(sheet).map((b) => (b.id === bandId ? { ...b, ...patch } : b));
-  const min = patched.find((b) => b.id === bandId).min;
-  const max = patched.find((b) => b.id === bandId).max;
-  if (max !== null && max < min) return 'The largest farm size cannot be below the smallest.';
-  return sheetTilingError(patched);
+  for (const band of draftBands) {
+    const was = wasBand.get(band.id);
+    if (!was) continue;
+    if (was.label !== band.label) changes.push({ kind: 'label', bandId: band.id, from: was.label, to: band.label });
+    for (const plan of draftPlans) {
+      const a = sheetPrice(before, was, plan);
+      const b = sheetPrice(after, band, plan);
+      if (a !== b) changes.push({ kind: 'price', bandId: band.id, planId: plan.id, from: a, to: b });
+    }
+  }
+  return changes;
+}
+
+/** A change in the words a farmer reads. */
+export function describeChange(change, draft) {
+  const bands = Array.isArray(draft?.bands) ? draft.bands : [];
+  const plans = Array.isArray(draft?.plans) ? draft.plans : [];
+  const labelOf = (bandId) => sheetBandLabel({ bands }, bands.find((b) => b.id === bandId)) || bandId;
+  const nameOf = (planId) => plans.find((p) => p.id === planId)?.name || planId;
+  const money = (v) => (v === null || v === undefined ? 'Customized' : `RWF ${v.toLocaleString('en-US')}`);
+
+  switch (change.kind) {
+    case 'plan.name':
+      return `your plan is now called ${change.to} (it was ${change.from})`;
+    case 'plan.days':
+      return `${nameOf(change.planId)} now lasts ${change.to} days (it was ${change.from})`;
+    case 'plan.description':
+      return `${nameOf(change.planId)} is now described as "${change.to}"`;
+    case 'plan.added':
+      return `${change.to} has been added to the price list`;
+    case 'price':
+      return `the ${nameOf(change.planId)} price for ${labelOf(change.bandId)} is now ${money(change.to)} (it was ${money(change.from)})`;
+    case 'label':
+      return `the farm size "${change.from}" is now called "${change.to}"`;
+    default:
+      return String(change.kind || 'the price list changed');
+  }
+}
+
+/**
+ * Which farmers a publish concerns, and in what words: the farmers registered
+ * on an edited plan, and the farmers whose own farm size changed price or name.
+ * A farmer hears one notification listing everything that touches them.
+ */
+export function publishImpact(devices, changes, draft) {
+  const byFarmer = new Map();
+  const add = (farmerId, text) => {
+    if (!farmerId) return;
+    if (!byFarmer.has(farmerId)) byFarmer.set(farmerId, new Set());
+    byFarmer.get(farmerId).add(text);
+  };
+  for (const change of changes) {
+    const text = describeChange(change, draft);
+    for (const device of devices || []) {
+      const heldPlan = device.subscription?.planId || null;
+      const heldBand = bandForChicks(deviceChicks(device))?.id || null;
+      if (change.kind === 'price') {
+        if (heldPlan === change.planId && heldBand === change.bandId) add(device.farmerId, text);
+      } else if (change.kind === 'label') {
+        if (heldBand === change.bandId) add(device.farmerId, text);
+      } else if (change.kind === 'plan.name' || change.kind === 'plan.days' || change.kind === 'plan.description') {
+        if (heldPlan === change.planId) add(device.farmerId, text);
+      }
+    }
+  }
+  return [...byFarmer.entries()].map(([farmerId, items]) => ({ farmerId, items: [...items] }));
 }
 
 /** The sheet with one price changed, or null when the edit is not allowed. */
@@ -389,17 +485,6 @@ export function sheetWithPrice(sheet, bandId, planId, price) {
   if (!band || typeof planId !== 'string' || planId === '') return null;
   if (priceEditError(price) !== null) return null;
   return { ...s, bands: s.bands.map((b) => (b.id === bandId ? { ...b, prices: { ...b.prices, [planId]: price } } : b)) };
-}
-
-/** The sheet with one row renamed, or re-ranged, or null when that is invalid. */
-export function sheetWithBand(sheet, bandId, patch = {}) {
-  const s = sheetOf(sheet);
-  if (bandEditError(s, bandId, patch) !== null) return null;
-  const next = {};
-  if (patch.label !== undefined) next.label = String(patch.label).trim();
-  if (patch.min !== undefined) next.min = patch.min;
-  if (patch.max !== undefined) next.max = patch.max;
-  return { ...s, bands: s.bands.map((b) => (b.id === bandId ? { ...b, ...next } : b)) };
 }
 
 /* ------------------------------------------------------------------ */

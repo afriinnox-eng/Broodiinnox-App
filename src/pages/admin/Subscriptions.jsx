@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
-import { subscriptionState } from '../../lib/services.js';
+import { subscriptionState, uid } from '../../lib/services.js';
 import {
-  SHEET_SOURCE, coverageFor, deviceChicks, planFrom, sheetBandBase, sheetBandForChicks,
-  sheetBandIsPriced, sheetBandLabel, sheetBands, sheetPrice,
+  SHEET_SOURCE, coverageFor, describeChange, deviceChicks, draftError, publishImpact, sheetBandBase,
+  sheetBandForChicks, sheetBandIsPriced, sheetBandLabel, sheetBands, sheetChanges, sheetPrice,
 } from '../../lib/subscriptions.js';
 import { Badge, Btn, Card, DataTable, Field, Modal } from '../../components/ui.jsx';
 import { fmtDate, fmtDateTime } from '../../lib/time.js';
@@ -12,49 +12,131 @@ import { fmtMoney, t } from '../../i18n/strings.js';
 /**
  * Afriinnox's view of subscriptions, and the price list itself.
  *
- * A plan is a duration; what it costs is decided by the farm size it is bought
- * for. This page therefore shows — and EDITS — the price sheet, because the
- * sheet is what the whole app reads: every plan the farmer is shown, every
- * amount charged, and every farm-size label. A sale already made keeps the price
- * it was sold at, so editing the sheet changes what is quoted from now on, never
- * what was paid.
+ * The list is what the whole app reads: the plans a farmer is shown, the amount
+ * MoMo is asked for, and the farm-size names on both pages. It is edited in two
+ * steps, deliberately:
+ *
+ *   EDIT   the table turns into fields (behind one Edit button, top right)
+ *   SAVE   the result is a DRAFT: this console shows it, farmers do not
+ *   PUBLISH the draft becomes the published list, farmers see it, and every
+ *          farmer it concerns is notified of what changed
+ *
+ * A subscription already sold keeps the price and the farm size it was bought
+ * at, so none of this rewrites what someone has already paid.
  */
 export default function AdminSubscriptions() {
   const { state, dispatch } = useStore();
   const lang = state.lang || 'en';
   const now = new Date().toISOString();
-  const [edit, setEdit] = useState(null); // plan term being edited
-  const [create, setCreate] = useState(false);
-  const sheet = state.sheet;
-  const bands = sheetBands(sheet);
+
+  const published = { bands: sheetBands(state.sheet), plans: state.plans };
+  const draft = state.sheetDraft || null;
+  const shown = draft ? { bands: draft.bands, plans: draft.plans } : published;
+
+  const [mode, setMode] = useState('view');   // 'view' | 'edit'
+  const [working, setWorking] = useState(null);
+  const [planEdit, setPlanEdit] = useState(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+
+  const editing = mode === 'edit' && !!working;
+  const view = editing ? working : shown;                       // the bands + plans on screen
+  const sheet = { ...state.sheet, bands: view.bands };
+  const bands = view.bands;
+  const plans = view.plans;
   const topBand = bands[bands.length - 1];
+
+  const pending = draft ? sheetChanges(published, draft) : [];
+  const pendingImpact = draft ? publishImpact(state.devices, pending, draft) : [];
   const farmers = Object.fromEntries(state.farmers.map((f) => [f.id, f.name]));
   const activeSubs = state.devices.filter((d) => d.subscription?.status === 'active' && subscriptionState(d.subscription.endDate, now) === 'active');
-  const termOf = (id) => planFrom(state.plans, id);
-  /** Plans are named the way the admin named them — the whole list renames with it. */
-  const planLabel = (plan) => plan?.name || '';
+  const planOf = (id) => plans.find((p) => p.id === id) || published.plans.find((p) => p.id === id) || null;
 
-  /** Every published price of one plan, cheapest farm size first. */
+  /** Every price of one plan on screen, cheapest farm size first. */
   const planPrices = (plan) => bands
     .map((band) => ({ band, price: sheetPrice(sheet, band, plan) }))
     .filter((r) => r.price !== null);
+
+  /* ---------------------------- editing ---------------------------- */
+
+  const startEdit = () => {
+    setWorking({
+      bands: shown.bands.map((b) => ({ ...b, prices: { ...b.prices } })),
+      plans: shown.plans.map((p) => ({ ...p })),
+    });
+    setMode('edit');
+  };
+  const cancelEdit = () => { setWorking(null); setMode('view'); };
+  const save = () => {
+    const reason = draftError(published, working);
+    if (reason) {
+      dispatch({ type: 'TOAST', msg: reason, kind: 'error' });
+      return;
+    }
+    dispatch({ type: 'SHEET_SAVE', bands: working.bands, plans: working.plans });
+    dispatch({ type: 'TOAST', msg: 'Saved. Farmers keep seeing the published list until you publish.' });
+    setWorking(null);
+    setMode('view');
+  };
+  const setCell = (bandId, planId, value) => setWorking((w) => ({
+    ...w,
+    bands: w.bands.map((b) => (b.id === bandId ? { ...b, prices: { ...b.prices, [planId]: value } } : b)),
+  }));
+  const setLabel = (bandId, label) => setWorking((w) => ({
+    ...w,
+    bands: w.bands.map((b) => (b.id === bandId ? { ...b, label } : b)),
+  }));
+  const putPlan = (plan) => setWorking((w) => ({
+    ...w,
+    plans: w.plans.some((p) => p.id === plan.id) ? w.plans.map((p) => (p.id === plan.id ? plan : p)) : [...w.plans, plan],
+  }));
+
+  /** What a cell holds while editing: the number, empty for Customized, or the derived price. */
+  const cellValue = (band, plan) => {
+    const v = band.prices ? band.prices[plan.id] : undefined;
+    if (v === null) return '';
+    if (v !== undefined) return String(v);
+    const derived = sheetPrice(sheet, band, plan);
+    return derived === null ? '' : String(derived);
+  };
+  const parseCell = (raw) => {
+    const text = raw.trim();
+    if (text === '') return null;
+    const n = Number(text);
+    return Number.isFinite(n) ? n : raw;   // an unparseable value is kept so Save can refuse it by name
+  };
+
+  const statusLine = editing
+    ? 'Editing — nothing changes until you press Save, and farmers see nothing until you publish.'
+    : draft
+      ? `Saved by ${draft.savedBy} on ${fmtDateTime(draft.savedAt)} — not published yet, so farmers still see the published list.`
+      : state.sheet.publishedBy
+        ? `Published by ${state.sheet.publishedBy} on ${fmtDateTime(state.sheet.publishedAt)} · from ${SHEET_SOURCE}`
+        : `As published — ${SHEET_SOURCE}`;
 
   return (
     <div>
       <h1>{t('nav.subscriptions', lang)}</h1>
 
-      <h3 style={{ marginTop: 8 }}>Plans <span className="pill">{state.plans.length}</span></h3>
+      <div className="row-between" style={{ marginTop: 8 }}>
+        <h3 style={{ margin: 0 }}>Plans <span className="pill">{plans.length}</span></h3>
+        {editing && (
+          <Btn small onClick={() => setPlanEdit({ id: uid('plan'), name: '', durationDays: 30, description: '', active: true, multiplier: 1.6, isNew: true })}>
+            + Add plan
+          </Btn>
+        )}
+      </div>
       <p className="muted small">
         A plan is a duration. What it costs is set by the farm size it is bought for, from the price list
-        below — so no price is stored on the plan itself, and renaming a plan renames it everywhere.
+        below — no price is stored on the plan itself.
       </p>
       <div className="grid cols-3">
-        {state.plans.map((p) => {
+        {plans.map((p) => {
           const rows = planPrices(p);
           const cheapest = rows[0];
           const dearest = rows[rows.length - 1];
+          const changed = draft && changedPlanIds(pending).has(p.id);
           return (
-            <Card key={p.id} title={planLabel(p)}>
+            <Card key={p.id} title={p.name}>
               <div className="big" style={{ color: 'var(--brand-green)' }}>
                 {cheapest ? fmtMoney(cheapest.price) : 'No price'}
                 {cheapest && dearest.price !== cheapest.price ? ` – ${fmtMoney(dearest.price)}` : ''}
@@ -71,52 +153,87 @@ export default function AdminSubscriptions() {
               )}
               <div className="row" style={{ marginTop: 8 }}>
                 <Badge tone={p.active ? 'ok' : 'off'}>{p.active ? 'active' : 'inactive'}</Badge>
-              </div>
-              <div className="btn-row" style={{ marginTop: 10 }}>
-                <Btn small onClick={() => setEdit(p)}>Edit</Btn>
-                <Btn small onClick={() => { dispatch({ type: 'UPDATE_PLAN', id: p.id, patch: { active: !p.active } }); dispatch({ type: 'TOAST', msg: 'Plan updated.' }); }}>
-                  {p.active ? 'Deactivate' : 'Activate'}
-                </Btn>
+                {changed && <Badge tone="warn">changed, not published</Badge>}
               </div>
             </Card>
           );
         })}
-        <button className="btn" style={{ minHeight: 120, justifyContent: 'center' }} onClick={() => setCreate(true)}>+ Create plan</button>
       </div>
 
-      <h3 style={{ marginTop: 20 }}>Price list by farm size (chicks)</h3>
-      <p className="muted small">
-        This list is what the whole app reads: the plans a farmer is shown, the amount MoMo is asked for,
-        and the farm-size names on both pages. Type in a cell and it saves when you leave it. Leave a price
-        empty for <b>Customized</b> — the app then quotes nothing rather than inventing a number. Rename a
-        farm size or move its range in the first column; a subscription already sold keeps the price and the
-        size it was sold at, so editing here changes what is quoted from now on, never what was paid.
-      </p>
-      <div className="row-between" style={{ marginTop: 6 }}>
-        <div className="muted small">
-          {sheet.updatedBy
-            ? `Last changed by ${sheet.updatedBy} on ${fmtDateTime(sheet.updatedAt)}`
-            : `As published — ${SHEET_SOURCE}`}
+      <div className="row-between" style={{ marginTop: 20, alignItems: 'flex-end' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Price list by farm size (chicks)</h3>
+          <div className="muted small" style={{ marginTop: 4 }}>{statusLine}</div>
         </div>
-        <Btn small onClick={() => dispatch({ type: 'SHEET_RESET' })}>Reset to the published list</Btn>
+        <div className="btn-row">
+          {editing ? (
+            <>
+              <Btn variant="primary" onClick={save}>Save</Btn>
+              <Btn onClick={cancelEdit}>Cancel</Btn>
+            </>
+          ) : (
+            <>
+              {draft && (
+                <Btn variant="green" disabled={pending.length === 0} onClick={() => setPublishOpen(true)}>
+                  Publish{pending.length ? ` (${pending.length})` : ''}
+                </Btn>
+              )}
+              {draft && <Btn onClick={() => dispatch({ type: 'SHEET_DISCARD' })}>Discard</Btn>}
+              <Btn variant={draft ? undefined : 'primary'} onClick={startEdit}>Edit</Btn>
+            </>
+          )}
+        </div>
       </div>
+      <p className="muted small">
+        Press <b>Edit</b>, change what you need, then <b>Save</b>. A saved list is yours alone — farmers keep
+        seeing the published one until you <b>Publish</b>, which makes it live and notifies every farmer it
+        concerns. Leave a price empty for <b>Customized</b>. A subscription already sold keeps the price it
+        was sold at.
+      </p>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th style={{ minWidth: 210 }}>Farm size</th>
-              {state.plans.map((p) => (
+              {plans.map((p) => (
                 <th key={p.id}>
-                  <Btn small title="Rename this plan, or change its duration" onClick={() => setEdit(p)}>
-                    {planLabel(p)}
-                  </Btn>
+                  {editing
+                    ? <Btn small title="Rename this plan or change how long it lasts" onClick={() => setPlanEdit(p)}>{p.name}</Btn>
+                    : p.name}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {bands.map((band) => (
-              <BandRow key={band.id} band={band} plans={state.plans} sheet={sheet} dispatch={dispatch} />
+              <tr key={band.id}>
+                <td>
+                  {editing ? (
+                    <input
+                      className="cell-input name"
+                      aria-label="Farm size name"
+                      value={band.label}
+                      onChange={(e) => setLabel(band.id, e.target.value)}
+                    />
+                  ) : <b>{sheetBandLabel(sheet, band)}</b>}
+                </td>
+                {plans.map((plan) => (
+                  <td key={plan.id}>
+                    {editing ? (
+                      <input
+                        className="cell-input price"
+                        aria-label={`${plan.name} — ${band.label}`}
+                        placeholder="Customized"
+                        inputMode="numeric"
+                        value={cellValue(band, plan)}
+                        onChange={(e) => setCell(band.id, plan.id, parseCell(e.target.value))}
+                      />
+                    ) : (
+                      fmtOrCustomized(sheetPrice(sheet, band, plan))
+                    )}
+                  </td>
+                ))}
+              </tr>
             ))}
           </tbody>
         </table>
@@ -128,12 +245,12 @@ export default function AdminSubscriptions() {
           { key: 'system', label: 'System', render: (r) => <b>{r.serial}</b> },
           { key: 'farmer', label: 'Farmer', render: (r) => farmers[r.farmerId] || '—' },
           { key: 'farmSize', label: 'Farm size', render: (r) => {
-            const band = sheetBandForChicks(sheet, deviceChicks(r));
-            return <div>{r.farmSize ? r.farmSize.toLocaleString('en-US') : '—'}<div className="muted small">{band ? sheetBandLabel(sheet, band) : 'not set'}</div></div>;
+            const band = sheetBandForChicks(state.sheet, deviceChicks(r));
+            return <div>{r.farmSize ? r.farmSize.toLocaleString('en-US') : '—'}<div className="muted small">{band ? sheetBandLabel(state.sheet, band) : 'not set'}</div></div>;
           } },
           { key: 'plan', label: 'Plan', render: (r) => (
             <div>
-              {termOf(r.subscription.planId)?.name || '—'}
+              {planOf(r.subscription.planId)?.name || '—'}
               <div className="muted small">{typeof r.subscription.price === 'number' ? fmtMoney(r.subscription.price) : '—'}</div>
             </div>
           ) },
@@ -155,172 +272,109 @@ export default function AdminSubscriptions() {
         rows={activeSubs.map((d) => ({ ...d, _key: d.id }))}
       />
 
-      {edit && <PlanModal plan={edit} sheet={sheet} dispatch={dispatch} onClose={() => setEdit(null)} />}
-      {create && <PlanModal sheet={sheet} dispatch={dispatch} onClose={() => setCreate(false)} />}
+      {planEdit && (
+        <PlanModal
+          plan={planEdit}
+          bands={bands}
+          onSave={(plan) => { putPlan(plan); setPlanEdit(null); }}
+          onClose={() => setPlanEdit(null)}
+        />
+      )}
+
+      {publishOpen && (
+        <Modal title="Publish the price list" onClose={() => setPublishOpen(false)}>
+          <p className="muted small">
+            This becomes the list every farmer is shown and what MoMo charges from now on.
+            Subscriptions already sold keep the price they were sold at.
+          </p>
+          <ul style={{ margin: '8px 0 8px 18px' }} className="small">
+            {pending.map((change, i) => <li key={i}>{describeChange(change, draft)}</li>)}
+          </ul>
+          <p className="muted small">
+            {pendingImpact.length === 0
+              ? 'No farmer is affected by these changes, so nobody is notified.'
+              : `${pendingImpact.length} farmer(s) will be notified: ${pendingImpact.map((i) => farmers[i.farmerId] || i.farmerId).join(', ')}.`}
+          </p>
+          <div className="btn-row">
+            <Btn variant="green" onClick={() => { dispatch({ type: 'SHEET_PUBLISH' }); setPublishOpen(false); }}>Publish</Btn>
+            <Btn onClick={() => setPublishOpen(false)}>Cancel</Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
+const fmtOrCustomized = (price) => (price === null ? 'Customized' : fmtMoney(price));
+
+/** The plans whose own definition (name, duration, description) is changed in the draft. */
+function changedPlanIds(changes) {
+  return new Set(changes
+    .filter((c) => c.kind === 'plan.name' || c.kind === 'plan.days' || c.kind === 'plan.description')
+    .map((c) => c.planId));
+}
+
 /**
- * Editing a plan means editing its NAME, its DURATION and what it says to the
- * farmer. The multiplier only seeds a brand-new plan: a plan that already has
- * cells on the price list is priced by those cells, and they are typed over in
- * the list itself. A change never re-prices a subscription already sold.
+ * A plan's name, how long it lasts, what it says to the farmer, and whether it
+ * is on sale. This edits the working copy only: nothing reaches the store until
+ * Save, and nothing reaches a farmer until Publish.
  */
-function PlanModal({ plan, sheet, dispatch, onClose }) {
-  const [name, setName] = useState(plan?.name || '');
-  const [durationDays, setDuration] = useState(String(plan?.durationDays || 30));
-  const [multiplier, setMultiplier] = useState(String(plan?.multiplier ?? 1.6));
-  const [description, setDescription] = useState(plan?.description || '');
+function PlanModal({ plan, bands, onSave, onClose }) {
+  const [name, setName] = useState(plan.name || '');
+  const [durationDays, setDuration] = useState(String(plan.durationDays || 30));
+  const [description, setDescription] = useState(plan.description || '');
+  const [active, setActive] = useState(plan.active !== false);
+  const [multiplier, setMultiplier] = useState(String(plan.multiplier ?? 1.6));
   const durNum = Number(durationDays);
   const multNum = Number(multiplier);
-  const formValid = Number.isInteger(durNum) && durNum >= 1
-    && Number.isFinite(multNum) && multNum > 0 && name.trim() !== '';
-  const example = sheetBandForChicks(sheet, 1000); // 1,000–1,199 chicks, for the live preview
-  const exampleBase = example ? sheetBandBase(sheet, example) : null;
-  const examplePrice = example && Number.isFinite(multNum) && exampleBase !== null
+  const valid = name.trim() !== '' && Number.isInteger(durNum) && durNum >= 1
+    && (!plan.isNew || (Number.isFinite(multNum) && multNum > 0));
+
+  // A brand-new plan has no cells of its own yet: it is priced as a multiple of
+  // the row's reference price until you type over its column in the list.
+  const example = bands[5] || bands[0];
+  const exampleBase = example ? sheetBandBase({ bands }, example) : null;
+  const examplePrice = plan.isNew && Number.isFinite(multNum) && exampleBase !== null
     ? Math.round(exampleBase * multNum)
     : null;
-  const save = () => {
-    if (!formValid) return;
-    if (plan) {
-      dispatch({ type: 'UPDATE_PLAN', id: plan.id, patch: { name, durationDays: durNum, multiplier: multNum, description } });
-    } else {
-      dispatch({ type: 'CREATE_PLAN', plan: { name, durationDays: durNum, multiplier: multNum, description } });
-    }
-    dispatch({ type: 'TOAST', msg: 'Plan saved. Prices come from the price list by farm size; transactions already made keep the price paid.' });
-    onClose();
-  };
+
   return (
-    <Modal title={plan ? 'Edit plan' : 'Create plan'} onClose={onClose}>
-      <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 45-Day" /></Field>
+    <Modal title={plan.isNew ? 'Add a plan' : 'Edit plan'} onClose={onClose}>
+      <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. 45-Day Plan" /></Field>
       <div className="grid cols-2" style={{ gap: 10 }}>
         <Field label="Duration (days)"><input type="number" min={1} value={durationDays} onChange={(e) => setDuration(e.target.value)} /></Field>
-        <Field label="Price multiplier (x the 15-Day price)"><input type="number" min={0.1} step={0.1} value={multiplier} onChange={(e) => setMultiplier(e.target.value)} /></Field>
+        {plan.isNew && (
+          <Field label="Price multiplier (x the 15-Day price)"><input type="number" min={0.1} step={0.1} value={multiplier} onChange={(e) => setMultiplier(e.target.value)} /></Field>
+        )}
       </div>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-      <p className="muted small">
-        On a farm of {sheetBandLabel(sheet, example)}, the 15-Day column is{' '}
-        <b>{exampleBase === null ? 'not priced' : fmtMoney(exampleBase)}</b>
-        {examplePrice === null
-          ? '.'
-          : <>, and a plan priced as this multiple of it would be <b>{fmtMoney(examplePrice)}</b> — a plan with
-            cells of its own on the price list is priced by those cells, which you type over in the list.</>}
-      </p>
-      <div className="btn-row"><Btn variant="primary" disabled={!formValid} onClick={save}>Save</Btn><Btn onClick={onClose}>Cancel</Btn></div>
+      <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+        On sale (a farmer can choose it)
+      </label>
+      {plan.isNew && (
+        <p className="muted small">
+          On {sheetBandLabel({ bands }, example)}, that multiple of the 15-Day column ({exampleBase === null ? 'not priced' : fmtMoney(exampleBase)}) is{' '}
+          <b>{examplePrice === null ? '—' : fmtMoney(examplePrice)}</b>. Type over the column in the list to set its prices cell by cell.
+        </p>
+      )}
+      <div className="btn-row">
+        <Btn
+          variant="primary"
+          disabled={!valid}
+          onClick={() => onSave({
+            id: plan.id,
+            name: name.trim(),
+            durationDays: durNum,
+            description,
+            active,
+            multiplier: plan.isNew ? multNum : (plan.multiplier ?? 1),
+          })}
+        >
+          Save to the list
+        </Btn>
+        <Btn onClick={onClose}>Cancel</Btn>
+      </div>
     </Modal>
-  );
-}
-
-/**
- * One row of the price list: the farm size it covers, and one price per plan.
- *
- * Every field saves when it is LEFT (blur or Enter), so a typo is not written on
- * each keystroke, and a value the list refuses leaves the row exactly as the
- * sheet has it — the store is the only truth here.
- */
-function BandRow({ sheet, band, plans, dispatch }) {
-  const [label, setLabel] = useState(band.label);
-  const [min, setMin] = useState(String(band.min));
-  const [max, setMax] = useState(band.max === null ? '' : String(band.max));
-  const [focused, setFocused] = useState(false);
-
-  useEffect(() => {
-    if (focused) return;
-    setLabel(band.label);
-    setMin(String(band.min));
-    setMax(band.max === null ? '' : String(band.max));
-  }, [band.label, band.min, band.max, focused]);
-
-  const commitLabel = () => {
-    setFocused(false);
-    if (label.trim() !== band.label.trim()) dispatch({ type: 'SHEET_SET_BAND', bandId: band.id, patch: { label } });
-  };
-  const commitRange = () => {
-    setFocused(false);
-    const nextMin = min.trim() === '' ? NaN : Number(min);
-    const nextMax = max.trim() === '' ? null : Number(max);
-    if (nextMin === band.min && nextMax === band.max) return;
-    dispatch({ type: 'SHEET_SET_BAND', bandId: band.id, patch: { min: nextMin, max: nextMax } });
-  };
-  const onKey = (e) => { if (e.key === 'Enter') e.currentTarget.blur(); };
-
-  return (
-    <tr>
-      <td>
-        <input
-          className="cell-input name"
-          aria-label="Farm size name"
-          value={label}
-          onFocus={() => setFocused(true)}
-          onChange={(e) => setLabel(e.target.value)}
-          onBlur={commitLabel}
-          onKeyDown={onKey}
-        />
-        <div className="row" style={{ gap: 4, alignItems: 'center', marginTop: 4 }}>
-          <input
-            className="cell-input tiny"
-            aria-label={`${label} — chicks from`}
-            inputMode="numeric"
-            value={min}
-            onFocus={() => setFocused(true)}
-            onChange={(e) => setMin(e.target.value)}
-            onBlur={commitRange}
-            onKeyDown={onKey}
-          />
-          <span className="muted small">to</span>
-          <input
-            className="cell-input tiny"
-            aria-label={`${label} — chicks to`}
-            placeholder="and above"
-            inputMode="numeric"
-            value={max}
-            onFocus={() => setFocused(true)}
-            onChange={(e) => setMax(e.target.value)}
-            onBlur={commitRange}
-            onKeyDown={onKey}
-          />
-          <span className="muted small">chicks</span>
-        </div>
-      </td>
-      {plans.map((plan) => (
-        <td key={plan.id}>
-          <PriceCell band={band} plan={plan} price={sheetPrice(sheet, band, plan)} dispatch={dispatch} />
-        </td>
-      ))}
-    </tr>
-  );
-}
-
-/** One RWF cell: a whole number of RWF, or empty for "Customized". */
-function PriceCell({ band, plan, price, dispatch }) {
-  const [draft, setDraft] = useState(price === null ? '' : String(price));
-  const [focused, setFocused] = useState(false);
-
-  useEffect(() => {
-    if (focused) return;
-    setDraft(price === null ? '' : String(price));
-  }, [price, focused]);
-
-  const commit = () => {
-    setFocused(false);
-    const raw = draft.trim();
-    const next = raw === '' ? null : Number(raw);
-    if (next === price) return;
-    dispatch({ type: 'SHEET_SET_PRICE', bandId: band.id, planId: plan.id, price: next });
-  };
-
-  return (
-    <input
-      className="cell-input price"
-      aria-label={`${plan.name} — ${band.label}`}
-      placeholder="Customized"
-      inputMode="numeric"
-      value={draft}
-      onFocus={() => setFocused(true)}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-    />
   );
 }

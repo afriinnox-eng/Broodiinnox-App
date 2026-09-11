@@ -436,13 +436,12 @@ describe('FUNCTIONAL: every list of plans names all five and prices them in RWF'
     expect(out.getByText('RWF 125,000 – RWF 1,235,000')).toBeTruthy(); // 6-Month
     expect(out.getByText('RWF 200,000 – RWF 1,976,000')).toBeTruthy(); // annual
     expect(out.getByText(/RWF 25,000 for Up to 599 chicks/)).toBeTruthy();
-    // and the full price list behind them — every farm size against every plan.
-    // Its cells are editable inputs now, so the money is in their values.
-    const cells = [...out.container.querySelectorAll('input.cell-input.price')];
-    expect(cells).toHaveLength(36 * 5); // 36 farm sizes x 5 plans
-    const money = cells.map((c) => Number(c.value)).filter((n) => Number.isFinite(n) && n > 0);
-    expect(money).toContain(1368000); // 1-Year on 10,000–10,999 chicks
-    expect(money).toContain(347200);  // 1-Year on 13,000–13,999 chicks
-    expect(money.length).toBe(35 * 5); // the Customized top row quotes nothing
+    // and the full price list behind them — every farm size against every plan,
+    // read as the list it is: text, with one Edit button, until someone edits it
+    const list = [...out.container.querySelectorAll('.table-wrap table')].map((tb) => tb.textContent).join(' ');
+    expect(list).toMatch(/RWF 1,368,000/); // 1-Year on 10,000–10,999 chicks
+    expect(list).toMatch(/RWF 347,200/);   // 1-Year on 13,000–13,999 chicks
+    expect(list).toMatch(/Customized/);    // the top row, quoted individually
+    expect(out.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
   });
 });
