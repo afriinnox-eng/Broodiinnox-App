@@ -207,9 +207,21 @@ export function paymentFailureNote(payment) {
   return FAILURE_NOTES[reason] || 'The payment did not go through. Try again, or contact Afriinnox for help.';
 }
 
-/** What a farmer is told while the prompt is on their phone. */
+/**
+ * What a farmer is told about a payment that is still open.
+ *
+ * A pending payment carrying a reason is one the server asked the gateway for
+ * and never got an answer about: there may be no prompt on the phone at all, so
+ * the farmer is told to look rather than told to approve something that is not
+ * there. The reason is a code (TIMEOUT, NETWORK) and is not shown as words.
+ */
 export function paymentPendingNote(payment) {
   const phone = payment?.phone ? ` on ${payment.phone}` : '';
+  if (payment?.failureReason) {
+    return `We asked MTN MoMo for a prompt${phone} and the gateway has not confirmed it yet. `
+      + 'If no prompt appeared, request the payment again in two minutes; if it did, approve it with your '
+      + 'MoMo PIN — the system unlocks by itself once the gateway confirms.';
+  }
   return `Waiting for MTN MoMo — approve the prompt${phone} with your MoMo PIN. The system unlocks by itself once the payment is confirmed.`;
 }
 

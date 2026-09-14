@@ -192,6 +192,13 @@ an amount that is not the amount requested, a `success` carrying a non-200
 `statusCode`, and a callback payload that Ekorana itself does not back up.
 Until that answer arrives the device stays locked.
 
+**And the gateway is the only thing that may fail one.** A timeout, a network
+error or a 5xx is *not* a refusal — the collection may exist and the farmer may
+already have paid it — so the payment stays pending, holding the reference the
+gateway knows, and the status poll keeps asking until it answers. Only a 4xx
+refusal, or the gateway's own verdict, is final. Anything else is how a farmer
+gets charged and stays locked.
+
 ### Turning it on
 
 The dashboard needs only `VITE_IOT_API_URL` (already set on the Render static

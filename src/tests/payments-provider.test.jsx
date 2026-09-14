@@ -219,6 +219,14 @@ describe('INVARIANT: the app never confirms a payment the provider has not', () 
     expect(paymentFailureNote({})).toMatch(/did not go through/);
     expect(paymentPendingNote({ phone: '250788123456' })).toMatch(/250788123456/);
     expect(paymentPendingNote({})).toMatch(/approve the prompt/);
+    // A pending payment carrying a reason is one the server asked the gateway
+    // for and never got an answer about: there may be no prompt at all, so the
+    // farmer must not be told to approve something that is not on their phone.
+    const unanswered = paymentPendingNote({ phone: '250788123456', failureReason: 'TIMEOUT' });
+    expect(unanswered).toMatch(/has not confirmed it yet/);
+    expect(unanswered).toMatch(/request the payment again in two minutes/);
+    expect(unanswered).toMatch(/250788123456/);
+    expect(unanswered).not.toMatch(/approve the prompt on/);
     // the names of the variables are shown, because the reader is Afriinnox
     expect(providerDisabledNote({ missing: ['EKOPAY_API_KEY'] })).toMatch(/missing: EKOPAY_API_KEY/);
     expect(providerDisabledNote({ invalid: ['EKOPAY_TRANSFER_PHONE'] })).toMatch(/unusable: EKOPAY_TRANSFER_PHONE/);

@@ -36,7 +36,9 @@
  *   EKOPAY_CURRENCY           default RWF — the gateway collects in RWF
  *   EKOPAY_COUNTRY_CODE       default 250 (Rwanda) — used to normalize MSISDNs
  *   EKOPAY_MIN_AMOUNT         default 50 — the gateway's own floor
- *   EKOPAY_TIMEOUT_MS         default 8000 — under the gateway's 10 s callback budget
+ *   EKOPAY_TIMEOUT_MS         default 20000 — how long to wait for the gateway to
+ *                             answer. A timeout is NOT a refusal: see
+ *                             isDefiniteEkopayRejection below.
  *
  * Everything here is pure or fetch-injectable, so it is tested without a
  * network (test/ekopay.test.js).
@@ -144,7 +146,7 @@ export function resolveEkopayConfig(env = process.env) {
     currency: (str(e.EKOPAY_CURRENCY) || 'RWF').toUpperCase(),
     countryCode,
     minAmount: int(e.EKOPAY_MIN_AMOUNT, EKOPAY_MIN_AMOUNT),
-    timeoutMs: int(e.EKOPAY_TIMEOUT_MS, 8_000),
+    timeoutMs: int(e.EKOPAY_TIMEOUT_MS, 20_000),
   };
 }
 
@@ -274,6 +276,37 @@ export function ekopayFailureReason(err) {
 }
 
 /**
+ * THE RULE THAT KEEPS COLLECTED MONEY FROM BEING BURIED.
+ *
+ * Did the gateway — or our own validation, before anything left the server —
+ * definitely refuse this request, so that no collection can exist?
+ *
+ *   yes  a 4xx from the gateway, or a request our own checks stopped before it
+ *        was sent. Nothing was collected; the attempt may be recorded FAILED.
+ *
+ *   no   a timeout, a network error, or a 5xx. THAT IS NOT AN ANSWER. The
+ *        gateway may well have created the collection and sent the prompt, and
+ *        the farmer may already have paid it. Recording that as FAILED loses
+ *        the money: a settled payment is never re-examined, so the farmer is
+ *        charged, the unit stays locked and the record says failed forever.
+ *
+ * A request we did not get an answer for leaves the payment PENDING, holding
+ * the reference id it was created with, so the next status poll can settle it.
+ */
+export function isDefiniteEkopayRejection(err) {
+  if (!(err instanceof EkopayError)) return false;
+  if (err.code === 'provider') {
+    const status = Number(err.status);
+    return Number.isFinite(status) && status >= 400 && status < 500;
+  }
+  // refused before the request left this server: nothing can have been collected
+  return [
+    'invalid-phone', 'invalid-amount', 'invalid-reference',
+    'invalid-transfer-phone', 'invalid-callback', 'not-configured',
+  ].includes(err.code);
+}
+
+/**
  * Create the Ekorana gateway client. `fetchImpl` is injectable so the whole
  * flow is testable without a network.
  */
@@ -291,7 +324,7 @@ export function createEkopayClient(config, { fetchImpl } = {}) {
 
   async function call(path, { method = 'GET', body } = {}) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), cfg.timeoutMs || 8_000);
+    const timer = setTimeout(() => controller.abort(), cfg.timeoutMs || 20_000);
     try {
       const res = await doFetch(withKey(path), {
         method,

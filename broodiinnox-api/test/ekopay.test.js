@@ -18,8 +18,8 @@ import assert from 'node:assert/strict';
 import {
   EKOPAY_MIN_AMOUNT, EKOPAY_REQUIRED_ENV, EkopayError, createEkopayClient,
   describeEkopayConfig, ekopayErrorMessage, ekopayFailureReason, ekopayNotConfiguredMessage,
-  ekopayReasonMessage, interpretEkopayStatus, newEkopayProbeReference, normalizeMsisdn,
-  resolveEkopayConfig, verifyEkopayCredentials,
+  ekopayReasonMessage, interpretEkopayStatus, isDefiniteEkopayRejection, newEkopayProbeReference,
+  normalizeMsisdn, resolveEkopayConfig, verifyEkopayCredentials,
 } from '../lib/ekopay.js';
 
 const ENV = {
@@ -202,6 +202,37 @@ test('ekopayFailureReason: the gateway’s own wording, as a code the dashboard 
   assert.equal(ekopayFailureReason({ code: 'not-configured' }), 'NOT_CONFIGURED');
   assert.equal(ekopayFailureReason({ code: 'invalid-phone' }), 'INVALID_PHONE');
   assert.equal(ekopayFailureReason({ status: 500 }), 'REQUEST_FAILED');
+});
+
+/* INVARIANT: only a REFUSAL is a refusal. This is the rule that decides
+ * whether money that was collected gets buried, so it is checked for every
+ * status the gateway can answer with and every way our own client can fail. */
+test('isDefiniteEkopayRejection: a refusal vs silence, for every failure there is', () => {
+  const provider = (status) => new EkopayError('x', { status, code: 'provider' });
+
+  // The gateway said no before it did anything: no collection can exist.
+  for (const status of [400, 401, 403, 404, 409, 422, 429]) {
+    assert.equal(isDefiniteEkopayRejection(provider(status)), true, `HTTP ${status} is the gateway refusing`);
+  }
+
+  // NOT an answer. The collection may exist and the farmer may already have
+  // paid it, so none of these may be treated as a refusal.
+  for (const status of [500, 501, 502, 503, 504]) {
+    assert.equal(isDefiniteEkopayRejection(provider(status)), false, `HTTP ${status} is the gateway breaking, not refusing`);
+  }
+  for (const code of ['timeout', 'network']) {
+    assert.equal(isDefiniteEkopayRejection(new EkopayError('x', { code })), false, `${code} is silence, not a refusal`);
+  }
+
+  // Refused before the request left this server: nothing can have been collected.
+  for (const code of ['invalid-phone', 'invalid-amount', 'invalid-reference', 'invalid-transfer-phone', 'invalid-callback', 'not-configured']) {
+    assert.equal(isDefiniteEkopayRejection(new EkopayError('x', { code })), true, code);
+  }
+
+  // Anything that is not our own error is not a verdict either.
+  assert.equal(isDefiniteEkopayRejection(new Error('whatever')), false);
+  assert.equal(isDefiniteEkopayRejection(null), false);
+  assert.equal(isDefiniteEkopayRejection(new EkopayError('x', { code: 'provider' })), false, 'no status at all');
 });
 
 /* ------------------------------------------------------------------ */

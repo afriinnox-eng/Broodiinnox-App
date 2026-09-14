@@ -9,6 +9,12 @@
  *   a success, and a device is never unlocked on anything but a confirmed
  *   payment.
  *
+ *   And only the provider may FAIL one. A request this server could not get an
+ *   answer for — a timeout, a network error, a 5xx — leaves the payment
+ *   PENDING, because the collection may exist and may already have been paid.
+ *   Recording that as FAILED buries money that was collected, since a settled
+ *   payment is never re-examined: see awaitsProvider.
+ *
  * Records live in the store (CockroachDB, or memory in dev); the routes and
  * the gateway callback go through these functions, so the rule is in one place.
  */
@@ -123,6 +129,30 @@ export function isConfirmed(payment) {
 }
 
 /**
+ * Failure reasons that mean "this server could not complete the request" —
+ * never "the gateway said no". They are written when no answer came back (see
+ * ekopayFailureReason), so the gateway's answer is still owed.
+ */
+export const UNSETTLED_FAILURE_REASONS = new Set(['TIMEOUT', 'NETWORK', 'REQUEST_FAILED']);
+
+/**
+ * Is this payment still open to the provider's answer?
+ *
+ *   pending                         yes — nothing has decided it yet.
+ *   failed for want of an answer    yes — the gateway never said no, and the
+ *                                   collection may exist and have been paid.
+ *   anything else                   no  — the provider decided it, and a
+ *                                   settled payment is history.
+ */
+export function awaitsProvider(payment) {
+  if (!payment) return false;
+  if (payment.status === PAYMENT_STATUS.PENDING) return true;
+  return payment.status === PAYMENT_STATUS.FAILED
+    && payment.provider_confirmed !== true
+    && UNSETTLED_FAILURE_REASONS.has(String(payment.reason || ''));
+}
+
+/**
  * The pending payment a fresh request is allowed to reuse, if any: same
  * device, still pending, with a provider reference, created inside the window.
  * Oldest first, so the reference the farmer already has a prompt for wins.
@@ -139,9 +169,9 @@ export function findReusablePending(payments, { device_id, farmer_id } = {}, now
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))[0] || null;
 }
 
-/** Has a pending payment waited long enough for its status to be asked again? */
+/** Has a payment waited long enough for its status to be asked again? */
 export function shouldPollStatus(payment, nowIso, afterMs = STATUS_POLL_AFTER_MS) {
-  if (!isPending(payment) || !payment.provider_ref) return false;
+  if (!awaitsProvider(payment) || !payment.provider_ref) return false;
   const now = Date.parse(nowIso || '') || Date.now();
   const last = Date.parse(payment.status_checked_at || payment.updated_at || payment.created_at || '') || 0;
   return now - last >= afterMs;
@@ -178,7 +208,10 @@ export function providerAmountMatches(payment, provider) {
 export function applyProviderStatus(payment, provider, now = new Date().toISOString()) {
   if (!payment) return { payment: null, confirmed: false, changed: false };
   // A settled payment is history: a late or repeated callback cannot rewrite it.
-  if (payment.status !== PAYMENT_STATUS.PENDING) {
+  // "Settled" means the PROVIDER settled it. A payment this server failed
+  // because it could not get an answer out of the gateway was settled by
+  // nobody, and that answer is still owed — see awaitsProvider.
+  if (!awaitsProvider(payment)) {
     return { payment, confirmed: isConfirmed(payment), changed: false };
   }
   const verdict = provider?.status || 'pending';
@@ -230,11 +263,21 @@ export function applyProviderStatus(payment, provider, now = new Date().toISOStr
     };
   }
 
-  // Still pending: only the last-checked stamp moves.
-  return { payment: base, confirmed: false, changed: true };
+  // Still pending: the verdict has not arrived, so only the last-checked stamp
+  // moves — and a reason this server recorded for not having heard back is kept,
+  // so the payment stays recognisable as one the gateway still owes an answer
+  // for instead of looking settled.
+  return { payment: { ...base, reason: provider?.reason || payment.reason || null }, confirmed: false, changed: true };
 }
 
-/** Record a failure that happened before MoMo ever saw the request. */
+/**
+ * Record a failure that the gateway itself decided, before any prompt existed —
+ * a 4xx refusal, or our own validation refusing the request before it left.
+ *
+ * NOT for a request we could not get an answer for: that leaves the payment
+ * pending, because the collection may exist and may already have been paid. See
+ * isDefiniteEkopayRejection in lib/ekopay.js.
+ */
 export function failPayment(payment, reason, now = new Date().toISOString()) {
   return {
     ...payment,

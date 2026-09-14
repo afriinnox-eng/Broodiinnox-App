@@ -13,8 +13,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MemoryStore } from '../lib/store.js';
 import {
-  MAX_AMOUNT, MIN_AMOUNT, PAYMENT_STATUS, applyProviderStatus, buildPayment, failPayment,
-  findReusablePending, isConfirmed, isPending, newPaymentId, paymentPatch,
+  MAX_AMOUNT, MIN_AMOUNT, PAYMENT_STATUS, applyProviderStatus, awaitsProvider, buildPayment,
+  failPayment, findReusablePending, isConfirmed, isPending, newPaymentId, paymentPatch,
   paymentTouched, providerAmountMatches, publicPayment, shouldPollStatus,
   unlockDeviceAfterPayment, validatePaymentInput,
 } from '../lib/payments.js';
@@ -168,13 +168,97 @@ test('applyProviderStatus: failed and pending stay unconfirmed', () => {
   assert.equal(still.payment.status_checked_at, at(5_000));
 });
 
-test('applyProviderStatus: a settled payment is history and is never rewritten', () => {
-  const failed = failPayment(pending(), 'REQUEST_FAILED', NOW);
+test('applyProviderStatus: a payment the PROVIDER settled is history and is never rewritten', () => {
+  // What the provider's own refusal looks like on the record: its message, or
+  // AMOUNT_MISMATCH. A code like TIMEOUT is OURS and means something else — see
+  // awaitsProvider below.
+  const failed = {
+    ...pending(),
+    status: PAYMENT_STATUS.FAILED,
+    provider_confirmed: false,
+    reason: 'The payment was rejected on the phone.',
+  };
   const again = applyProviderStatus(failed, { status: 'successful', amount: '12000', currency: 'RWF' }, at(9_000));
   assert.equal(again.changed, false);
   assert.equal(again.confirmed, false);
   assert.equal(again.payment.status, PAYMENT_STATUS.FAILED);
-  assert.equal(again.payment.status, failed.status);
+
+  // ... and a successful one is not rewritten by a later failure either.
+  const ok = applyProviderStatus(pending(), { status: 'successful', amount: '12000', currency: 'RWF' }, at(5_000)).payment;
+  const later = applyProviderStatus(ok, { status: 'failed' }, at(9_000));
+  assert.equal(later.changed, false);
+  assert.equal(later.payment.status, PAYMENT_STATUS.SUCCESSFUL);
+  assert.equal(later.payment.provider_confirmed, true);
+});
+
+/* INVARIANT: only the PROVIDER settles a payment. A payment this server failed
+ * because it never got an answer was settled by nobody, and the gateway's
+ * answer is still owed — the difference between a farmer being unlocked and a
+ * farmer being charged for a locked unit. */
+test('awaitsProvider: only the provider settles a payment', () => {
+  assert.equal(awaitsProvider(pending()), true, 'nothing has decided it yet');
+
+  // failed for want of an answer: the gateway still owes one
+  for (const reason of ['TIMEOUT', 'NETWORK', 'REQUEST_FAILED']) {
+    assert.equal(awaitsProvider(pending({ status: PAYMENT_STATUS.FAILED, reason })), true, reason);
+  }
+
+  // the provider decided it: history
+  assert.equal(awaitsProvider(pending({ status: PAYMENT_STATUS.SUCCESSFUL, provider_confirmed: true })), false);
+  assert.equal(awaitsProvider(pending({ status: PAYMENT_STATUS.FAILED, reason: 'AMOUNT_MISMATCH' })), false);
+  assert.equal(awaitsProvider(pending({ status: PAYMENT_STATUS.FAILED, reason: null })), false);
+  assert.equal(awaitsProvider(pending({ status: PAYMENT_STATUS.FAILED, reason: 'The payment was rejected on the phone.' })), false);
+  assert.equal(awaitsProvider(null), false);
+});
+
+test('applyProviderStatus: a payment failed for want of an answer is still settled by the provider', () => {
+  // The exact shape of the RWF 25,000 payment collected on 14 Sept 2026 at
+  // 16:27 UTC: recorded failed/TIMEOUT one second before the gateway created
+  // the transaction, and never re-examined afterwards.
+  const stuck = {
+    ...pending(),
+    status: PAYMENT_STATUS.FAILED,
+    provider_confirmed: false,
+    reason: 'TIMEOUT',
+  };
+
+  const ok = applyProviderStatus(stuck, { status: 'successful', amount: '12000', currency: 'RWF', financialTransactionId: 'EK-9' }, at(5_000));
+  assert.equal(ok.confirmed, true);
+  assert.equal(ok.payment.status, PAYMENT_STATUS.SUCCESSFUL);
+  assert.equal(ok.payment.provider_confirmed, true);
+  assert.equal(ok.payment.financial_tx_id, 'EK-9');
+  assert.equal(ok.payment.reason, null);
+
+  // a success for another amount on such a payment is still not a success
+  const short = applyProviderStatus(stuck, { status: 'successful', amount: '100' }, at(5_000));
+  assert.equal(short.confirmed, false);
+  assert.equal(short.payment.reason, 'AMOUNT_MISMATCH');
+  assert.equal(awaitsProvider(short.payment), false, 'the provider has now decided it');
+
+  // ... and hearing "still pending" must NOT erase the reason, or the payment
+  // would look settled and be abandoned for good.
+  const still = applyProviderStatus(stuck, { status: 'pending' }, at(5_000));
+  assert.equal(still.payment.status, PAYMENT_STATUS.FAILED);
+  assert.equal(still.payment.reason, 'TIMEOUT');
+  assert.equal(awaitsProvider(still.payment), true);
+});
+
+test('shouldPollStatus: a payment the gateway still owes an answer for is asked about again', () => {
+  const stuck = { ...pending({ status: PAYMENT_STATUS.FAILED, reason: 'TIMEOUT' }), status_checked_at: NOW };
+  assert.equal(shouldPollStatus(stuck, at(1_000)), false);
+  assert.equal(shouldPollStatus(stuck, at(5_000)), true);
+  assert.equal(shouldPollStatus({ ...stuck, provider_ref: null }, at(60_000)), false);
+  assert.equal(shouldPollStatus(pending({ status: PAYMENT_STATUS.FAILED, reason: 'AMOUNT_MISMATCH' }), at(60_000)), false);
+});
+
+test('paymentPatch after an unanswered request keeps the payment pending and records why', () => {
+  const row = pending();
+  const open = paymentTouched({ ...row, reason: 'TIMEOUT' }, at(2_000));
+  const patch = paymentPatch(open);
+  assert.equal(patch.status, PAYMENT_STATUS.PENDING, 'a timeout is not a failure');
+  assert.equal(patch.reason, 'TIMEOUT');
+  assert.equal(patch.provider_ref, row.provider_ref, 'the reference is kept, so the gateway can still be asked');
+  assert.equal(patch.provider_confirmed, false);
 });
 
 test('paymentPatch moves only the mutable columns', () => {

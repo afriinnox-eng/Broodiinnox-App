@@ -69,7 +69,7 @@ node scripts/smoke-api.mjs
 | `EKOPAY_CURRENCY` | `RWF` | The currency the gateway collects in. |
 | `EKOPAY_COUNTRY_CODE` | `250` | Used to normalize the payer's and the merchant number to MSISDNs. |
 | `EKOPAY_MIN_AMOUNT` | `50` | The gateway's own floor; a smaller request is refused before it is sent. |
-| `EKOPAY_TIMEOUT_MS` | `8000` | Per-request timeout towards Ekorana — kept under its 10 s callback budget. |
+| `EKOPAY_TIMEOUT_MS` | `20000` | How long to wait for Ekorana to answer. A timeout is not a refusal: the payment stays pending and the poll asks again. |
 
 > **Payments need the Ekorana API key and merchant number.** Without them the
 > server still serves everything else; `POST /api/payments` answers `503` naming
@@ -181,6 +181,14 @@ amount it collected is the amount requested.** Concretely:
   and applies *that*. A forged notification is a no-op, and a duplicate — the
   gateway retries when we are slower than ten seconds — changes nothing.
 * An amount below the gateway's floor of 50 RWF is refused before it is sent.
+* **Only the gateway may fail a payment.** A 4xx from it, or our own validation
+  stopping the request before it was sent, is a refusal: nothing can have been
+  collected, so the attempt is recorded `FAILED`. A timeout, a network error or
+  a 5xx is *not* a refusal — the collection may exist and the farmer may already
+  have paid it — so the payment stays `PENDING`, keeps the reference the gateway
+  knows, and the poll keeps asking until it answers. A payment failed for want of
+  an answer is still settled by a later verdict (`awaitsProvider`); only the
+  gateway's own answer is final.
 * A provider error (timeout, 500, unreachable) leaves the payment `PENDING`, never
   failed: a network hiccup is not a failed payment.
 * Two taps while a prompt is live reuse the same payment (no second prompt, no

@@ -14,6 +14,12 @@
  * a payment, and neither can a callback body (it is re-checked against the
  * gateway before it changes anything). Only a confirmed payment unlocks a unit.
  *
+ * And only the gateway may FAIL one. A request this server could not get an
+ * answer for — a timeout, a network error, a 5xx — leaves the payment PENDING
+ * rather than failed, because the collection may exist and the farmer may
+ * already have paid it. That distinction is the whole difference between a
+ * farmer being unlocked and a farmer being charged for a locked unit.
+ *
  * The `referenceId` the gateway is given is this payment's own id (`pay_…`) —
  * the gateway calls it "your unique transaction ID" and returns it on every
  * status read and every callback, which is what makes a callback resolvable
@@ -22,10 +28,10 @@
 import { DEFAULT_TOPIC_PREFIX } from './constants.js';
 import {
   createEkopayClient, describeEkopayConfig, ekopayErrorMessage, ekopayFailureReason,
-  ekopayNotConfiguredMessage, resolveEkopayConfig,
+  ekopayNotConfiguredMessage, isDefiniteEkopayRejection, resolveEkopayConfig,
 } from './ekopay.js';
 import {
-  applyProviderStatus, buildPayment, failPayment, findReusablePending, isPending,
+  applyProviderStatus, awaitsProvider, buildPayment, failPayment, findReusablePending,
   newPaymentId, paymentPatch, paymentTouched, publicPayment, shouldPollStatus,
   unlockDeviceAfterPayment, validatePaymentInput, STATUS_POLL_AFTER_MS,
 } from './payments.js';
@@ -105,15 +111,38 @@ export async function createPaymentRequest({ store, body, env = process.env, fet
     });
     return { status: 201, body: { payment: publicPayment(stored || row) } };
   } catch (err) {
-    // The gateway never accepted the request: the record stays as a FAILED
-    // attempt with the reason, and nothing was charged.
     const reason = ekopayFailureReason(err);
-    const failed = await store.updatePayment(id, paymentPatch(failPayment(row, reason, now)));
+
+    // A REFUSAL — a 4xx from the gateway, or our own validation stopping the
+    // request before it left the server — is definite: no collection can exist,
+    // so the attempt is recorded FAILED and nothing was charged.
+    //
+    // Anything else (a timeout, a network error, a 5xx) is NOT a refusal. The
+    // gateway may have created the collection and sent the prompt, and the
+    // farmer may already have approved it. Recording that as FAILED hides money
+    // that was collected, because a settled payment is never re-examined later.
+    // So the payment stays PENDING, holding the reference it was created with,
+    // and the poll keeps asking the gateway until it answers: the status is
+    // decided by the gateway and by nothing else.
+    if (isDefiniteEkopayRejection(err)) {
+      const failed = await store.updatePayment(id, paymentPatch(failPayment(row, reason, now)));
+      return {
+        status: 502,
+        body: {
+          error: ekopayErrorMessage(err),
+          payment: publicPayment(failed || failPayment(row, reason, now)),
+        },
+      };
+    }
+
+    const open = await store.updatePayment(id, paymentPatch(paymentTouched({ ...row, reason }, now)));
     return {
-      status: 502,
+      status: 202,
       body: {
-        error: ekopayErrorMessage(err),
-        payment: publicPayment(failed || failPayment(row, reason, now)),
+        payment: publicPayment(open || { ...row, reason }),
+        unconfirmed: true,
+        notice: `The payment gateway has not confirmed this request yet (${ekopayErrorMessage(err)}). `
+          + 'If no prompt arrived on the phone, the payment can be requested again in two minutes.',
       },
     };
   }
@@ -129,7 +158,10 @@ export async function createPaymentRequest({ store, body, env = process.env, fet
 export async function refreshPayment({ store, bridge, paymentId, env = process.env, fetchImpl, now = nowIso(), force = false, prefix } = {}) {
   const payment = await store.getPayment(paymentId);
   if (!payment) return { status: 404, body: { error: `No payment "${paymentId}"` } };
-  if (!isPending(payment)) {
+  // A payment the PROVIDER settled is history and is not asked about again. One
+  // that is pending, or that this server failed for want of an answer, is still
+  // open to the gateway's verdict.
+  if (!awaitsProvider(payment)) {
     return { status: 200, body: { payment: publicPayment(payment), refreshed: false } };
   }
   if (!force && !shouldPollStatus(payment, now, STATUS_POLL_AFTER_MS)) {

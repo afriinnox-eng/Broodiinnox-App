@@ -29,7 +29,7 @@ const DEVICE = 'BROODIINNOX-002';
 const BODY = { device_id: DEVICE, farmer_id: 'f1', plan_id: 't30d', band_id: 'b5', amount: 12_000, phone: '0788123456' };
 
 /** A fake Ekorana gateway. `verify` is what the status endpoint will answer. */
-function fakeEkopay({ verify = { status: 'pending' }, payStatus = 201 } = {}) {
+function fakeEkopay({ verify = { status: 'pending' }, payStatus = 201, initiate = 'ok' } = {}) {
   const calls = { pay: 0, status: 0 };
   const fetchImpl = async (url, opts = {}) => {
     const u = new URL(String(url), 'https://ekopay.test');
@@ -41,6 +41,15 @@ function fakeEkopay({ verify = { status: 'pending' }, payStatus = 201 } = {}) {
       calls.payBody = body;
       calls.payUrl = String(url);
       calls.payKey = u.searchParams.get('apiKey');
+      // Silence, not a refusal: the client's own timeout aborts this one, and
+      // the network error never reaches the gateway at all. Both are the case
+      // that used to bury money that had in fact been collected.
+      if (initiate === 'timeout') {
+        return new Promise((_, reject) => {
+          opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        });
+      }
+      if (initiate === 'network') throw new Error('getaddrinfo ENOTFOUND');
       if (payStatus >= 300) return ok(payStatus, { error: payStatus === 400 ? 'referenceId already exists' : 'nope' });
       return ok(201, {
         transaction: {
@@ -191,6 +200,92 @@ test('a request the gateway refuses is recorded as a failed attempt, with the re
 
   const [row] = await store.listPayments();
   assert.equal(row.status, 'failed');
+});
+
+/* ------------------------------------------------------------------ */
+/* INVARIANT: only the gateway's own answer decides. Silence does not.  */
+/* ------------------------------------------------------------------ */
+
+test('a request the gateway never answered leaves the payment PENDING, and the gateway still settles it', async () => {
+  const store = await storeWithDevice();
+  const bridge = fakeBridge();
+  await store.upsertState(DEVICE, { deviceId: DEVICE, locked: true, lastSeenAt: Date.now() });
+  const env = { ...ENV, EKOPAY_TIMEOUT_MS: '20' };
+
+  const out = await createPaymentRequest({ store, body: BODY, env, fetchImpl: fakeEkopay({ initiate: 'timeout' }) });
+
+  assert.equal(out.status, 202, 'accepted, but not confirmed');
+  assert.equal(out.body.unconfirmed, true);
+  assert.match(out.body.notice, /has not confirmed/);
+  assert.equal(out.body.payment.status, 'pending', 'a timeout is not a refusal');
+  assert.equal(out.body.payment.provider_confirmed, false);
+  assert.equal(out.body.payment.reason, 'TIMEOUT');
+  assert.ok(out.body.payment.provider_ref, 'the reference is kept, so the gateway can still be asked');
+  assert.equal(bridge.published.length, 0, 'nothing unlocks on a request we did not hear about');
+
+  // The gateway had it all along: the prompt went out, the farmer approved it.
+  const confirmed = await refreshPayment({
+    store, bridge, paymentId: out.body.payment.id, env, force: true, now: laterThan(out.body.payment),
+    fetchImpl: fakeEkopay({ verify: { status: 'success', statusCode: 200, amount: 12_000 } }),
+  });
+  assert.equal(confirmed.body.confirmed, true);
+  assert.equal(confirmed.body.payment.status, 'successful');
+  assert.equal(confirmed.body.device_unlock.sent, true);
+  assert.equal(bridge.published.length, 1, 'the farmer who paid is unlocked after all');
+});
+
+test('a gateway that breaks — 5xx — is not a refusal either', async () => {
+  const store = await storeWithDevice();
+  const out = await createPaymentRequest({ store, body: BODY, env: ENV, fetchImpl: fakeEkopay({ payStatus: 503 }) });
+  assert.equal(out.status, 202);
+  assert.equal(out.body.payment.status, 'pending');
+  assert.equal(out.body.payment.reason, 'REQUEST_FAILED');
+});
+
+test('a request that never reached the gateway is not a refusal either', async () => {
+  const store = await storeWithDevice();
+  const out = await createPaymentRequest({ store, body: BODY, env: ENV, fetchImpl: fakeEkopay({ initiate: 'network' }) });
+  assert.equal(out.status, 202);
+  assert.equal(out.body.payment.status, 'pending');
+  assert.equal(out.body.payment.reason, 'NETWORK');
+});
+
+test('a payment already recorded failed for want of an answer is still settled by the gateway', async () => {
+  const store = await storeWithDevice();
+  const bridge = fakeBridge();
+  const created = await createPaymentRequest({ store, body: BODY, env: ENV, fetchImpl: fakeEkopay() });
+  const id = created.body.payment.id;
+
+  // The shape of the RWF 25,000 payment collected on 14 Sept 2026 at 16:27 UTC:
+  // recorded failed/TIMEOUT one second before the gateway created the
+  // transaction, and never asked about again.
+  await store.updatePayment(id, { status: 'failed', provider_confirmed: false, reason: 'TIMEOUT' });
+  assert.equal((await store.getPayment(id)).status, 'failed');
+
+  const out = await refreshPayment({
+    store, bridge, paymentId: id, env: ENV, force: true, now: laterThan(created.body.payment),
+    fetchImpl: fakeEkopay({ verify: { status: 'success', statusCode: 200, amount: 12_000 } }),
+  });
+  assert.equal(out.body.confirmed, true);
+  assert.equal(out.body.payment.status, 'successful');
+  assert.equal(out.body.device_unlock.sent, true);
+});
+
+test('a payment the gateway REFUSED is not re-opened by a later status read', async () => {
+  const store = await storeWithDevice();
+  const bridge = fakeBridge();
+  const created = await createPaymentRequest({ store, body: BODY, env: ENV, fetchImpl: fakeEkopay() });
+  const id = created.body.payment.id;
+
+  // The gateway itself said no — or our own validation stopped it before it
+  // left. Either way nothing was collected, and it is history.
+  await store.updatePayment(id, { status: 'failed', provider_confirmed: false, reason: 'INVALID_PHONE' });
+  const forbidden = () => { throw new Error('a payment the gateway refused must not be re-checked'); };
+
+  const out = await refreshPayment({ store, bridge, paymentId: id, env: ENV, force: true, fetchImpl: forbidden });
+  assert.equal(out.body.refreshed, false);
+  assert.equal(out.body.payment.status, 'failed');
+  assert.equal(bridge.published.length, 0);
 });
 
 /* ------------------------------------------------------------------ */

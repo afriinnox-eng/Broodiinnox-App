@@ -479,7 +479,11 @@ function reducer(state, action) {
     // payment — a pending one stays pending until the provider answers.
     case 'PAYMENT_PROVIDER_STATUS': {
       const payment = state.payments.find((p) => p.id === action.paymentId);
-      if (!payment || payment.status !== PAYMENT_STATUS.PENDING) return state;
+      // A payment the gateway has already settled is never rewritten. One that
+      // this server failed for want of an answer is still open to the gateway's
+      // verdict — see awaitsProvider in broodiinnox-api/lib/payments.js — so its
+      // answer may settle it now.
+      if (!payment || payment.providerConfirmed === true) return state;
       const fields = providerFieldsFromRow(action.row);
       if (!fields) return state;
       const at = nowIso();
@@ -512,10 +516,15 @@ function reducer(state, action) {
       };
     }
 
-    // "Check status": no state change here — the API is asked (see
-    // dispatchLive) and the answer arrives as PAYMENT_PROVIDER_STATUS.
+    // "Check status": no provider call happens here — the API is asked (see
+    // dispatchLive) and the answer arrives as PAYMENT_PROVIDER_STATUS. It marks
+    // the row as already asked, so a payment the gateway has settled is not
+    // asked about over and over.
     case 'PAYMENT_CHECK':
-      return state;
+      return {
+        ...state,
+        payments: state.payments.map((p) => (p.id === action.paymentId ? { ...p, statusAsked: true } : p)),
+      };
 
     // Whether this server can take payments at all, so the app can say so
     // before it takes somebody's number instead of failing their payment.
@@ -1125,6 +1134,10 @@ export function StoreProvider({ children }) {
         });
         if (cancelled) return;
         dispatch({ type: 'PAYMENT_PROVIDER_RESULT', paymentId: due.id, ok: true, row: out?.payment || null });
+        // The server answered 202: it could not get an answer out of the gateway
+        // and the payment is still open. Saying nothing would leave the farmer
+        // staring at "waiting" with no idea whether a prompt is coming.
+        if (out?.notice) dispatch({ type: 'TOAST', msg: out.notice, kind: 'info' });
       } catch (err) {
         if (cancelled) return;
         dispatch({ type: 'PAYMENT_PROVIDER_RESULT', paymentId: due.id, ok: false, error: err?.message, row: err?.payment || null });
@@ -1142,6 +1155,16 @@ export function StoreProvider({ children }) {
         } catch {
           /* the next poll asks again: a slow provider is not a failed payment */
         }
+      }
+
+      // A payment this app recorded as failed is still asked about ONCE, in case
+      // the server is holding one the gateway has since settled — the case where
+      // a request we never got an answer for was in fact collected. The server is
+      // authoritative, so a row it has settled is left alone from then on.
+      for (const p of stateRef.current.payments) {
+        if (p.provider !== true || !p.apiId) continue;
+        if (p.status !== PAYMENT_STATUS.FAILED || p.providerConfirmed === true || p.statusAsked) continue;
+        dispatch({ type: 'PAYMENT_CHECK', paymentId: p.id });
       }
     };
 
