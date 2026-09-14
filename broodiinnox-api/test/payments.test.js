@@ -13,7 +13,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MemoryStore } from '../lib/store.js';
 import {
-  MAX_AMOUNT, PAYMENT_STATUS, applyProviderStatus, buildPayment, failPayment,
+  MAX_AMOUNT, MIN_AMOUNT, PAYMENT_STATUS, applyProviderStatus, buildPayment, failPayment,
   findReusablePending, isConfirmed, isPending, newPaymentId, paymentPatch,
   paymentTouched, providerAmountMatches, publicPayment, shouldPollStatus,
   unlockDeviceAfterPayment, validatePaymentInput,
@@ -67,6 +67,15 @@ test('validatePaymentInput: refuses an unpricesable request, whatever else is ri
   bad({ amount: null }, /whole number/);
   bad({ phone: 'not-a-number' }, /valid MTN MoMo number/);
   bad({ currency: 'RWFX' }, /Invalid currency/);
+});
+
+test('validatePaymentInput: below the gateway’s floor is refused, and the floor is named', () => {
+  // Ekorana answers "amount must be at least 50" — so 49 is refused here, not
+  // after a round trip that was always going to fail.
+  const out = validatePaymentInput({ ...REQUEST, amount: MIN_AMOUNT - 1 });
+  assert.equal(out.ok, false);
+  assert.match(out.error, new RegExp(`between ${MIN_AMOUNT} and`));
+  assert.equal(validatePaymentInput({ ...REQUEST, amount: MIN_AMOUNT }).ok, true);
 });
 
 test('buildPayment: a new payment starts pending and unconfirmed', () => {
@@ -197,6 +206,15 @@ test('publicPayment: the dashboard shape, with no internal columns', () => {
   assert.equal(out.amount, 12_000);
   assert.equal(out._seq, undefined);
   assert.equal(publicPayment(null), null);
+});
+
+test('publicPayment: the amount is a number whichever store answered', () => {
+  // CockroachDB's INT comes back over the wire as a string; the dashboard reads
+  // this field as money, and its own reader accepts a number or nothing.
+  assert.equal(publicPayment({ ...pending(), amount: '12000' }).amount, 12_000);
+  assert.equal(publicPayment({ ...pending(), amount: 12_000 }).amount, 12_000);
+  assert.equal(publicPayment({ ...pending(), amount: null }).amount, null);
+  assert.equal(publicPayment({ ...pending(), amount: '' }).amount, null);
 });
 
 test('paymentTouched: a provider that did not answer moves the clock, not the status', () => {

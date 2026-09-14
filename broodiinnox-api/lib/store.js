@@ -234,7 +234,7 @@ export class MemoryStore {
       .map((a) => ({ ...a }));
   }
 
-  /* ---- payments (MTN MoMo) ---- */
+  /* ---- payments (MTN MoMo, collected through the Ekorana gateway) ---- */
 
   async createPayment(p) {
     this._paymentSeq += 1;
@@ -426,7 +426,7 @@ class PostgresStore {
     return rows;
   }
 
-  /* ---- payments (MTN MoMo) ---- */
+  /* ---- payments (MTN MoMo, collected through the Ekorana gateway) ---- */
 
   async createPayment(p) {
     const { rows } = await this.pool.query(

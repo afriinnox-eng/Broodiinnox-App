@@ -6,10 +6,10 @@ import { refreshPayment } from '../../../../lib/paymentFlow.js';
 /**
  * GET /api/payments/:id — one payment.
  *
- * A pending payment is re-checked with MTN MoMo on the way (throttled to one
- * check every few seconds), so simply reading a payment is enough for the
- * dashboard to learn that it was approved — and a confirmed payment unlocks the
- * unit that it paid for.
+ * A pending payment is re-checked with the Ekorana gateway on the way
+ * (throttled to one check every few seconds), so simply reading a payment is
+ * enough for the dashboard to learn that it was approved — and a confirmed
+ * payment unlocks the unit that it paid for.
  */
 export async function GET(request, ctx) {
   if (!isAuthorized(request)) return unauthorized();

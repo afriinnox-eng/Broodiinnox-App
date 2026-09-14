@@ -4,7 +4,7 @@ import {
   batchDaysRemaining, deviceChicks, planFit, planFrom, sheetBandForChicks, sheetBandLabel,
   sheetBands, sheetPlansForBand, sheetPrice,
 } from '../lib/subscriptions.js';
-import { momoDisabledNote, momoPhoneError } from '../lib/payments.js';
+import { momoPhoneError, providerDisabledNote } from '../lib/payments.js';
 import { Badge, Btn, Field, Modal } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { fmtMoney } from '../i18n/strings.js';
@@ -34,7 +34,7 @@ export default function PayModal({ device, initialPlanId, onClose }) {
   // Whether the server can collect payments at all. The API answers this on
   // /api/health; when it cannot, no number is worth typing and the reason is
   // shown instead of a button that would fail.
-  const momoOff = state.momo ? state.momo.enabled === false : false;
+  const paymentsOff = state.provider ? state.provider.enabled === false : false;
 
   const plan = planFrom(state.plans, planId);
   const price = sheetPrice(sheet, band, plan);
@@ -50,7 +50,7 @@ export default function PayModal({ device, initialPlanId, onClose }) {
   const running = device.subscription?.status === 'active' && runningDaysLeft > 0;
 
   const pay = () => {
-    if (phoneErr || momoOff) return;
+    if (phoneErr || paymentsOff) return;
     setSending(true);
     dispatch({ type: 'REQUEST_PAYMENT', farmerId: state.session.id, deviceId: device.id, planId, phone });
     setTimeout(() => {
@@ -68,10 +68,10 @@ export default function PayModal({ device, initialPlanId, onClose }) {
 
   return (
     <Modal title={`Pay for ${device.name} (${device.serial})`} onClose={onClose}>
-      {momoOff && (
+      {paymentsOff && (
         <div className="warn-banner" style={{ marginBottom: 12 }}>
           <Icon name="alert" size={18} />
-          <div>{momoDisabledNote(state.momo)}</div>
+          <div>{providerDisabledNote(state.provider)}</div>
         </div>
       )}
 
@@ -164,7 +164,7 @@ export default function PayModal({ device, initialPlanId, onClose }) {
         </p>
       )}
       <div className="btn-row">
-        <Btn variant="green" onClick={pay} disabled={sending || !payable || !!phoneErr || momoOff}>
+        <Btn variant="green" onClick={pay} disabled={sending || !payable || !!phoneErr || paymentsOff}>
           {sending ? 'Sending…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="send" size={15} /> Request MoMo payment</span>}
         </Btn>
         <Btn onClick={onClose}>Cancel</Btn>

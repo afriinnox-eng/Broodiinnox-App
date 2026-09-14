@@ -163,30 +163,34 @@ band it was bought for stay on the record as history.
 
 Note: the farm size lives in the app's own data. A unit that arrives only from
 the broodiinnox-api has no farm size until an admin sets one, and the app says so
-rather than quoting it a price. Payments are real MTN Mobile Money when the API
-is configured with MoMo credentials, and the built-in simulation otherwise — see
-"Payments" below.
+rather than quoting it a price. Payments are real MTN Mobile Money, collected by
+the Ekorana gateway, when the API is configured with an Ekorana key and merchant
+number — and the built-in simulation otherwise. See "Payments" below.
 
-## Payments — MTN Mobile Money
+## Payments — MTN Mobile Money, through Ekorana
 
 A farmer pays for a subscription from **Subscriptions** or **Payments** →
 "Request MoMo payment". No card, no typed amount: the price comes from the
-published sheet, and the money is collected from the farmer's MTN MoMo wallet.
+published sheet, and the money is collected from the farmer's MTN MoMo wallet by
+the **Ekorana Payment Gateway** ("Ekopay"), which transfers it to Afriinnox's
+merchant MTN number. The gateway's own documentation is
+`ekopay Payment Gateway API Documentation.pdf` in this folder.
 
 | Step | Where it happens |
 |---|---|
 | The app prices the payment from the published sheet and records it as `pending` | `src/lib/store.jsx` (`REQUEST_PAYMENT`) |
 | It asks the API for the money — `POST /api/payments` | `src/lib/payments.js` |
-| The API asks MTN MoMo to collect (request-to-pay) | `broodiinnox-api/lib/momo.js` |
-| MTN prompts the payer's phone; the farmer approves with their MoMo PIN | MTN |
-| The app polls `GET /api/payments/:id`; MTN also posts to the callback if `MOMO_CALLBACK_URL` is set | `broodiinnox-api/lib/paymentFlow.js` |
+| The API asks Ekorana to collect (`POST /payment/initiate`), quoting our own payment id as the reference | `broodiinnox-api/lib/ekopay.js` |
+| Ekorana prompts the payer's phone; the farmer approves with their MoMo PIN and the money goes to the merchant number | Ekorana / MTN |
+| The app polls `GET /api/payments/:id`; Ekorana also posts to the callback at `EKOPAY_CALLBACK_URL` | `broodiinnox-api/lib/paymentFlow.js` |
 | On a **confirmed** payment the subscription is activated and the locked unit is unlocked (`device_active=ACTIVE`) | store + API |
 
-**The provider is the only thing that confirms a payment.** The dashboard can
+**The gateway is the only thing that confirms a payment.** The dashboard can
 request one and display one; it can never mark one successful, and the API
-refuses to treat anything but MTN's own answer as confirmation — including an
-amount that is not the amount requested, and including a callback payload that
-MTN itself does not back up. Until that answer arrives the device stays locked.
+refuses to treat anything but Ekorana's own answer as confirmation — including
+an amount that is not the amount requested, a `success` carrying a non-200
+`statusCode`, and a callback payload that Ekorana itself does not back up.
+Until that answer arrives the device stays locked.
 
 ### Turning it on
 
@@ -195,28 +199,25 @@ site). The **credentials live on the server** — in the `broodiinnox-api` servi
 on Render → *Environment* (or `broodiinnox-api/.env` locally):
 
 ```
-MOMO_SUBSCRIPTION_KEY=<Collections subscription key>
-MOMO_API_USER=<API user UUID>
-MOMO_API_KEY=<API key>
-MOMO_TARGET_ENVIRONMENT=sandbox        # or the live environment MTN Rwanda gives you
-MOMO_BASE_URL=https://sandbox.momodeveloper.mtn.com
-MOMO_CURRENCY=RWF
-MOMO_CALLBACK_URL=https://broodiinnox-api.onrender.com/api/payments/momo/callback
+EKOPAY_API_KEY=<your Ekorana API key>
+EKOPAY_TRANSFER_PHONE=<your merchant MTN number, e.g. 0788765432>
+EKOPAY_BASE_URL=https://api.payment.ekorana.com/api/v1
+EKOPAY_CALLBACK_URL=https://broodiinnox-api.onrender.com/api/payments/ekopay/callback
+EKOPAY_CURRENCY=RWF
 ```
 
-`broodiinnox-api/.env.example` documents each one, and
-`broodiinnox-api/README.md` explains how to create the sandbox credentials and
-switch to live. After setting them, `GET /api/health` answers
-`"momo": { "enabled": true, "missing": [] }` — that confirms the server is
-*configured*. To confirm MTN actually **accepts** the credentials — an expired
-key, a key for another product and a key for the other environment look
-identical to `/api/health` — run
-`node broodiinnox-api/scripts/momo-check.mjs`: exit 0 and a farmer can pay.
+`broodiinnox-api/.env.example` documents each one, including the gateway's own
+50 RWF minimum and its 10-second callback budget. After setting them,
+`GET /api/health` answers `"ekopay": { "enabled": true, "missing": [],
+"invalid": [] }` — that confirms the server is *configured*. To confirm Ekorana
+actually **accepts** the key — an expired key and one that was never activated
+look identical to `/api/health` — run
+`node broodiinnox-api/scripts/ekopay-check.mjs`: exit 0 and a farmer can pay.
 
 Until those exist the app says so plainly: the payment is refused with the
-server's own message (which names the missing variable) and nothing is charged.
-In demo mode — no `VITE_IOT_API_URL` at all — the seeded simulation still
-confirms its own payments after 30 s, so the sample data keeps working.
+server's own message (which names what is still to be set) and nothing is
+charged. In demo mode — no `VITE_IOT_API_URL` at all — the seeded simulation
+still confirms its own payments after 30 s, so the sample data keeps working.
 
 ## Deploy (Render)
 

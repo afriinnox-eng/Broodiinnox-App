@@ -2,7 +2,7 @@ import { isAuthorized } from '../../../lib/auth.js';
 import { ok, unauthorized, options } from '../../../lib/http.js';
 import { ensureReady } from '../../../lib/server.js';
 import { DEFAULT_TOPIC_PREFIX } from '../../../lib/constants.js';
-import { describeMomoConfig, resolveMomoConfig } from '../../../lib/momo.js';
+import { describeEkopayConfig, resolveEkopayConfig } from '../../../lib/ekopay.js';
 
 export async function GET() {
   const { store, bridge } = await ensureReady();
@@ -22,10 +22,11 @@ export async function GET() {
     storage: {
       mode: store.mode, // 'cockroach' | 'memory'
     },
-    // Whether farmers can pay right now, and which env vars are still missing —
-    // the names only, never a value. `enabled: false` here is the answer to
-    // "why did the app say MTN MoMo is not configured?".
-    momo: describeMomoConfig(resolveMomoConfig(process.env)),
+    // Whether farmers can pay right now, and which env vars are still to be
+    // set — the names only, never a value (not the API key, and not the
+    // merchant number). `enabled: false` here is the answer to "why did the app
+    // say payments are not configured?".
+    ekopay: describeEkopayConfig(resolveEkopayConfig(process.env)),
   });
 }
 

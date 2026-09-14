@@ -91,9 +91,10 @@ CREATE TABLE IF NOT EXISTS commands_log (
 );
 CREATE INDEX IF NOT EXISTS idx_commands_device_ts ON commands_log (device_id, ts DESC);
 
--- MTN Mobile Money collection requests. `provider_confirmed` is only ever set
--- by the provider's own status answer (or an API-side re-check of a callback),
--- and a device is unlocked only by a payment whose `provider_confirmed` is true.
+-- MTN Mobile Money collection requests, placed through the Ekorana payment
+-- gateway. `provider_confirmed` is only ever set by the gateway's own status
+-- answer (or an API-side re-check of a callback), and a device is unlocked only
+-- by a payment whose `provider_confirmed` is true.
 CREATE TABLE IF NOT EXISTS payments (
   id                 TEXT PRIMARY KEY,
   device_id          TEXT NOT NULL,

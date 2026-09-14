@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, Card, DataTable, downloadCsv, Stat } from '../../components/ui.jsx';
 import { Icon } from '../../components/icons.jsx';
-import { momoDisabledNote, momoFailureNote } from '../../lib/payments.js';
+import { paymentFailureNote, providerDisabledNote } from '../../lib/payments.js';
 import { fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
@@ -10,9 +10,9 @@ export default function AdminPayments() {
   const { state } = useStore();
   const lang = state.lang || 'en';
   const [statusF, setStatusF] = useState('all');
-  // What the API reports about MTN MoMo: whether it can collect at all, and
-  // which env vars are still missing. The names only — never a value.
-  const momoOff = state.momo ? state.momo.enabled === false : false;
+  // What the API reports about the payment gateway: whether it can collect at
+  // all, and which env vars are still to be set. The names only — never a value.
+  const paymentsOff = state.provider ? state.provider.enabled === false : false;
   const farmers = useMemo(() => Object.fromEntries(state.farmers.map((f) => [f.id, f.name])), [state.farmers]);
   const payments = useMemo(() => {
     let list = state.payments;
@@ -39,10 +39,10 @@ export default function AdminPayments() {
     <div>
       <h1>{t('nav.payments', lang)}</h1>
 
-      {momoOff && (
+      {paymentsOff && (
         <div className="warn-banner" style={{ margin: '12px 0' }}>
           <Icon name="alert" size={20} />
-          <div>{momoDisabledNote(state.momo)}</div>
+          <div>{providerDisabledNote(state.provider)}</div>
         </div>
       )}
 
@@ -55,10 +55,10 @@ export default function AdminPayments() {
 
       <div className="row-between">
         <div className="row">
-          <Badge tone={state.momo ? (momoOff ? 'crit' : 'ok') : 'off'}>
-            {state.momo
-              ? (momoOff ? 'MTN MoMo: not configured' : 'MTN MoMo: collecting payments')
-              : 'MTN MoMo: unknown'}
+          <Badge tone={state.provider ? (paymentsOff ? 'crit' : 'ok') : 'off'}>
+            {state.provider
+              ? (paymentsOff ? 'Payments: not configured' : 'Payments: collecting')
+              : 'Payments: unknown'}
           </Badge>
           <select className="field" style={{ width: 'auto', marginBottom: 0 }} value={statusF} onChange={(e) => setStatusF(e.target.value)}>
             <option value="all">All statuses</option>
@@ -86,7 +86,7 @@ export default function AdminPayments() {
                   {r.status === 'successful' && r.providerConfirmed === true
                     && <div className="muted small">verified by MTN MoMo</div>}
                   {r.status === 'failed' && (
-                    <div className="small" style={{ color: 'var(--crit)' }}>{momoFailureNote(r)}</div>
+                    <div className="small" style={{ color: 'var(--crit)' }}>{paymentFailureNote(r)}</div>
                   )}
                 </div>
               ),

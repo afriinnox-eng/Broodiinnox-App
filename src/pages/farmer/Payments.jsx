@@ -3,7 +3,7 @@ import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, EmptyState } from '../../components/ui.jsx';
 import { Icon } from '../../components/icons.jsx';
 import PayModal from '../../components/PayModal.jsx';
-import { momoDisabledNote, momoFailureNote, momoPendingNote } from '../../lib/payments.js';
+import { paymentFailureNote, paymentPendingNote, providerDisabledNote } from '../../lib/payments.js';
 import { fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
@@ -14,10 +14,10 @@ export default function FarmerPayments() {
   const myPayments = useMemo(() => state.payments.filter((p) => p.farmerId === state.session.id), [state.payments, state.session.id]);
   const myDevices = useMemo(() => state.devices.filter((d) => d.farmerId === state.session.id), [state.devices, state.session.id]);
   const planOf = (id) => state.plans.find((p) => p.id === id);
-  // The API reports whether it can collect payments at all (MTN MoMo
+  // The API reports whether it can collect payments at all (the Ekorana
   // credentials present). When it cannot, the farmer is told before typing a
   // number rather than after a payment that could never be collected.
-  const momoOff = state.momo ? state.momo.enabled === false : false;
+  const paymentsOff = state.provider ? state.provider.enabled === false : false;
 
   return (
     <div>
@@ -30,7 +30,7 @@ export default function FarmerPayments() {
           : (
             <div className="row">
               {myDevices.map((d) => (
-                <Btn key={d.id} variant="green" disabled={momoOff} onClick={() => setPayFor(d)}>
+                <Btn key={d.id} variant="green" disabled={paymentsOff} onClick={() => setPayFor(d)}>
                   + Pay for {d.name} ({d.serial})
                 </Btn>
               ))}
@@ -39,10 +39,10 @@ export default function FarmerPayments() {
       </div>
       <p className="muted">Pay subscriptions directly with MTN Mobile Money. Payments are verified with the provider before a device unlocks.</p>
 
-      {momoOff && (
+      {paymentsOff && (
         <div className="warn-banner" style={{ margin: '12px 0' }}>
           <Icon name="alert" size={20} />
-          <div>{momoDisabledNote(state.momo)}</div>
+          <div>{providerDisabledNote(state.provider)}</div>
         </div>
       )}
 
@@ -67,8 +67,8 @@ export default function FarmerPayments() {
                       && <div className="muted small">verified by MTN MoMo</div>}
                     {p.status === 'pending' && (
                       <div className="muted small">
-                        {p.momo === true
-                          ? (p.submitting ? 'Sending the request to MTN MoMo…' : momoPendingNote(p))
+                        {p.provider === true
+                          ? (p.submitting ? 'Sending the request to MTN MoMo…' : paymentPendingNote(p))
                           : 'waiting for provider…'}
                       </div>
                     )}
@@ -80,7 +80,7 @@ export default function FarmerPayments() {
                       </Btn>
                     )}
                     {p.status === 'failed' && (
-                      <div className="small" style={{ color: 'var(--crit)' }}>{momoFailureNote(p)}</div>
+                      <div className="small" style={{ color: 'var(--crit)' }}>{paymentFailureNote(p)}</div>
                     )}
                   </td>
                 </tr>

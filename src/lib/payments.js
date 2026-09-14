@@ -1,15 +1,15 @@
 /**
  * MTN Mobile Money, from the dashboard's side.
  *
- * The browser never talks to MTN and never sees a MoMo credential: it asks
- * broodiinnox-api to collect a payment and reads back what the provider
- * decided. The credentials (`MOMO_*`) and the verification live on the server —
- * this module only carries the request and the answer.
+ * The browser never talks to Ekorana and never sees an API key: it asks
+ * broodiinnox-api to collect a payment and reads back what the gateway decided.
+ * The credentials (`EKOPAY_*`) and the verification live on the server — this
+ * module only carries the request and the answer.
  *
  * Nothing here can confirm a payment. `providerFieldsFromRow()` copies what the
  * API reports, and the store activates a subscription only when that report says
  * `status: successful` AND `provider_confirmed: true` — which the API sets from
- * MTN's own answer and from nothing else.
+ * the gateway's own answer and from nothing else.
  *
  * Configuration: the same API as the devices (`VITE_IOT_API_URL`). When it is
  * not set the app runs its built-in simulation, and none of this is used.
@@ -137,10 +137,14 @@ export function createPaymentsApi({ baseUrl, apiKey = '', timeoutMs = 8000, fetc
     getPayment: (id) => request(`/api/payments/${enc(id)}`),
     /** Force a status check with MTN (the farmer pressing "check status"). */
     refreshPayment: (id) => request(`/api/payments/${enc(id)}/refresh`, { method: 'POST' }),
-    /** Whether the server can take payments at all, and what is missing. */
-    momoStatus: async () => {
+    /**
+     * Whether the server can take payments at all, and what is still to be set.
+     * Read from the API's own health report (`ekopay`), which carries the names
+     * of the variables and never a value.
+     */
+    providerStatus: async () => {
       const health = await request('/api/health');
-      return health && typeof health === 'object' && health.momo ? health.momo : null;
+      return health && typeof health === 'object' && health.ekopay ? health.ekopay : null;
     },
   };
 }
@@ -172,49 +176,54 @@ export function isProviderConfirmed(row) {
   return !!row && row.status === 'successful' && row.provider_confirmed === true;
 }
 
-/** Plain words for the failure reasons MTN MoMo returns. */
+/**
+ * Plain words for the reasons the Ekorana gateway gives. `AMOUNT_MISMATCH` is
+ * ours: it is what the API records when the gateway collected a different
+ * amount than the one asked for.
+ */
 const FAILURE_NOTES = {
-  AMOUNT_MISMATCH: 'MTN MoMo collected a different amount than the one requested, so the payment was not accepted and nothing was unlocked. If money left your wallet, contact Afriinnox with the MTN transaction reference.',
-  PAYER_NOT_FOUND: 'That number is not an MTN MoMo account. Check the number and request the payment again.',
-  PAYEE_NOT_FOUND: 'The receiving MTN MoMo account was not found — contact Afriinnox.',
-  NOT_ALLOWED: 'This MTN MoMo account is not allowed to make this payment.',
-  NOT_ALLOWED_TARGET_ENVIRONMENT: 'This MTN MoMo account cannot pay right now — contact Afriinnox.',
-  AMOUNT_NOT_ALLOWED: 'MTN MoMo does not allow this amount on that account.',
-  INVALID_CURRENCY: 'MTN MoMo does not accept the currency this server is configured for — contact Afriinnox.',
-  INVALID_CALLBACK_URL_HOST: 'MTN MoMo rejected the configured callback URL — contact Afriinnox.',
-  APPROVAL_REJECTED: 'The payment was rejected on the phone.',
-  EXPIRED: 'The MTN MoMo prompt expired before it was approved — request the payment again.',
-  SERVICE_UNAVAILABLE: 'MTN MoMo is temporarily unavailable — try again in a moment.',
-  INTERNAL_PROCESSING_ERROR: 'MTN MoMo could not process the request — try again in a moment.',
-  COULD_NOT_PERFORM_TRANSACTION: 'The transaction could not be performed — try again.',
-  RESOURCE_ALREADY_EXIST: 'This payment was already requested — check its status before trying again.',
-  RESOURCE_NOT_FOUND: 'MTN MoMo does not know this payment reference — request the payment again.',
-  REQUEST_FAILED: 'MTN MoMo refused the payment request — try again, or contact Afriinnox.',
+  AMOUNT_MISMATCH: 'The payment gateway collected a different amount than the one requested, so the payment was not accepted and nothing was unlocked. If money left your wallet, contact Afriinnox with the gateway reference.',
+  REQUEST_FAILED: 'The payment gateway refused the request — try again, or contact Afriinnox.',
+  TIMEOUT: 'The payment gateway did not answer in time — try again.',
+  NETWORK: 'The server could not reach the payment gateway — try again in a moment.',
+  NOT_CONFIGURED: 'Payments are not configured on the server yet — contact Afriinnox.',
+  REFERENCE_EXISTS: 'This payment was already requested — check its status before trying again.',
+  AMOUNT_TOO_SMALL: 'The amount is below the payment gateway’s minimum of 50 RWF — contact Afriinnox.',
   INVALID_PHONE: 'That number is not an MTN MoMo number — check it and try again.',
+  INVALID_API_KEY: 'The payment gateway rejected the server’s API key — contact Afriinnox.',
+  API_KEY_INACTIVE: 'The payment gateway says the server’s API key is not active — contact Afriinnox.',
+  TRANSACTION_NOT_FOUND: 'The payment gateway does not know this transaction — request the payment again.',
 };
 
 /**
  * The sentence to show for a payment that did not go through. Handles both a
- * MoMo reason code (PAYER_NOT_FOUND) and a message the API already wrote in
- * plain words (an unconfigured server, a refused request).
+ * reason code (AMOUNT_MISMATCH) and a message the API already wrote in plain
+ * words (an unconfigured server, a refused request).
  */
-export function momoFailureNote(payment) {
+export function paymentFailureNote(payment) {
   const reason = typeof payment?.failureReason === 'string' ? payment.failureReason.trim() : '';
   if (!reason) return 'The MTN MoMo payment did not go through. You can request it again.';
   if (!/^[A-Z0-9_]+$/.test(reason)) return reason;
-  return FAILURE_NOTES[reason] || 'MTN MoMo refused the payment. Try again, or contact Afriinnox for help.';
+  return FAILURE_NOTES[reason] || 'The payment did not go through. Try again, or contact Afriinnox for help.';
 }
 
 /** What a farmer is told while the prompt is on their phone. */
-export function momoPendingNote(payment) {
+export function paymentPendingNote(payment) {
   const phone = payment?.phone ? ` on ${payment.phone}` : '';
   return `Waiting for MTN MoMo — approve the prompt${phone} with your MoMo PIN. The system unlocks by itself once the payment is confirmed.`;
 }
 
-/** What the app shows when the server cannot take payments at all. */
-export function momoDisabledNote(momo = {}) {
-  const missing = Array.isArray(momo?.missing) && momo.missing.length ? momo.missing.join(', ') : null;
-  return missing
-    ? `MTN MoMo is not configured on the server yet (missing: ${missing}), so no payment can be collected. Afriinnox has to set it before farmers can pay.`
-    : 'MTN MoMo is not configured on the server yet, so no payment can be collected. Afriinnox has to set it before farmers can pay.';
+/**
+ * What the app shows when the server cannot take payments at all. The names of
+ * the variables still to be set are shown because the reader is Afriinnox staff
+ * looking at the deployment, not a farmer.
+ */
+export function providerDisabledNote(provider = {}) {
+  const parts = [];
+  const missing = (provider?.missing || []).filter(Boolean);
+  const invalid = (provider?.invalid || []).filter(Boolean);
+  if (missing.length) parts.push(`missing: ${missing.join(', ')}`);
+  if (invalid.length) parts.push(`unusable: ${invalid.join(', ')}`);
+  const why = parts.length ? ` (${parts.join('; ')})` : '';
+  return `Payments are not configured on the server yet${why}, so no payment can be collected. Afriinnox has to set the Ekorana gateway up before farmers can pay.`;
 }

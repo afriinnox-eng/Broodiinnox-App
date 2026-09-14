@@ -1,12 +1,13 @@
 /**
- * Assembled exercise of the MoMo payment path — the program as a farmer meets
- * it, not a unit in isolation. The REAL entry chain is mounted
+ * Assembled exercise of the payment path — the program as a farmer meets it,
+ * not a unit in isolation. The REAL entry chain is mounted
  * (HashRouter -> StoreProvider -> App) cold-started on the farmer payments
- * route, with a fake broodiinnox-api and a fake MTN MoMo behind fetch, and the
- * farmer is driven through it: open the page, press Pay, type a number, request
- * the payment. It asserts on what actually left the app and what the app says
- * afterwards — the route is registered, the page is mounted, the modal is wired
- * to the store, the store reaches the API, and the pending payment is shown.
+ * route, with a fake broodiinnox-api and the Ekorana gateway behind fetch, and
+ * the farmer is driven through it: open the page, press Pay, type a number,
+ * request the payment. It asserts on what actually left the app and what the
+ * app says afterwards — the route is registered, the page is mounted, the modal
+ * is wired to the store, the store reaches the API, and the pending payment is
+ * shown.
  */
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -44,7 +45,7 @@ beforeEach(async () => {
     const reply = (payload, status = 200) => ({
       ok: status < 300, status, text: async () => JSON.stringify(payload),
     });
-    if (u.endsWith('/api/health')) return reply({ ok: true, momo: { enabled: true, missing: [] } });
+    if (u.endsWith('/api/health')) return reply({ ok: true, ekopay: { enabled: true, missing: [], invalid: [] } });
     if (method === 'POST' && u.endsWith('/api/payments')) return reply({ payment: apiRow, reused: false }, 201);
     if (method === 'GET' && /\/api\/payments\/[^/?]+$/.test(u)) return reply({ payment: apiRow });
     if (u.includes('/api/payments')) return reply({ count: 0, payments: [] });

@@ -363,7 +363,7 @@ function reducer(state, action) {
       if (paymentsConfig.enabled && !normalizeMomoPhone(phone)) {
         return { ...state, toast: { msg: momoPhoneError(phone), kind: 'error', at: Date.now() } };
       }
-      if (state.payments.some((p) => p.deviceId === deviceId && p.status === PAYMENT_STATUS.PENDING && p.momo === true)) {
+      if (state.payments.some((p) => p.deviceId === deviceId && p.status === PAYMENT_STATUS.PENDING && p.provider === true)) {
         return { ...state, toast: { msg: 'A payment for this system is already waiting for MTN MoMo — approve the prompt on your phone, or check its status.', kind: 'error', at: Date.now() } };
       }
       // The price is the SHEET's price for this farm size as the admin has it
@@ -396,11 +396,12 @@ function reducer(state, action) {
         method: 'MTN MoMo', status: PAYMENT_STATUS.PENDING,
         providerConfirmed: false, providerRef: null,
         period: `${planName(term)} — ${sheetBandLabel(state.sheet, band)}`, createdAt: nowIso(), confirmedAt: null,
-        // `momo: true` means real money collected by MTN MoMo through the API:
-        // only the provider may settle it (PAYMENT_PROVIDER_STATUS), and only a
-        // provider-confirmed payment unlocks the unit. With no API configured
-        // the built-in simulation settles it, as it always has.
-        momo: paymentsConfig.enabled === true,
+        // `provider: true` means real money collected by MTN MoMo through the
+        // Ekorana gateway: only the gateway may settle it
+        // (PAYMENT_PROVIDER_STATUS), and only a gateway-confirmed payment
+        // unlocks the unit. With no API configured the built-in simulation
+        // settles it, as it always has.
+        provider: paymentsConfig.enabled === true,
         currency: 'RWF',
         apiId: null, financialTxId: null, failureReason: null,
         submitting: false, submitError: null, statusCheckedAt: null,
@@ -413,12 +414,12 @@ function reducer(state, action) {
 
     case 'CONFIRM_PAYMENT': {
       // The demo provider (and an admin marking a demo payment paid). A REAL
-      // payment is settled by MTN MoMo and by nothing else: pressing a button
-      // in the browser must never unlock a system nobody has paid for.
+      // payment is settled by the payment gateway and by nothing else: pressing
+      // a button in the browser must never unlock a system nobody has paid for.
       const payment = state.payments.find((p) => p.id === action.paymentId);
       if (!payment || payment.status !== PAYMENT_STATUS.PENDING) return state;
-      if (payment.momo === true) {
-        return { ...state, toast: { msg: 'This payment is confirmed by MTN MoMo, not by the app.', kind: 'error', at: Date.now() } };
+      if (payment.provider === true) {
+        return { ...state, toast: { msg: 'This payment is confirmed by the payment gateway, not by the app.', kind: 'error', at: Date.now() } };
       }
       const ok = action.ok !== undefined ? action.ok : true;
       return withAudit(
@@ -427,7 +428,7 @@ function reducer(state, action) {
       );
     }
 
-    /* ---- the real provider: MTN MoMo, through broodiinnox-api ---- */
+    /* ---- the real provider: MTN MoMo, collected by the Ekorana gateway ---- */
 
     // The request is being handed to the API. The reducer stays pure, so the
     // call itself lives in the store's effect (see below).
@@ -518,8 +519,8 @@ function reducer(state, action) {
 
     // Whether this server can take payments at all, so the app can say so
     // before it takes somebody's number instead of failing their payment.
-    case 'MOMO_HEALTH':
-      return { ...state, momo: action.momo ?? null };
+    case 'PROVIDER_HEALTH':
+      return { ...state, provider: action.provider ?? null };
 
     /* Plans are edited as part of the price list, through the draft — see the
        SHEET_* actions below — so there is no separate plan write path. */
@@ -962,9 +963,9 @@ function tick(state) {
   let payments = state.payments;
   let devices2 = devices;
   for (const p of payments) {
-    // A REAL payment is settled only by MTN's own answer, which the app reads
-    // from the API: the demo ticker must never confirm one.
-    if (p.momo === true) continue;
+    // A REAL payment is settled only by the gateway's own answer, which the app
+    // reads from the API: the demo ticker must never confirm one.
+    if (p.provider === true) continue;
     if (p.status === PAYMENT_STATUS.PENDING && new Date(now) - new Date(p.createdAt) > 30000) {
       const ok = simulateMoMo(p).status === PAYMENT_STATUS.SUCCESSFUL;
       payments = payments.map((x) => (x.id === p.id ? { ...x, status: ok ? PAYMENT_STATUS.SUCCESSFUL : PAYMENT_STATUS.FAILED, providerConfirmed: ok, confirmedAt: now } : x));
@@ -1090,15 +1091,16 @@ export function StoreProvider({ children }) {
     };
   }, [api]);
 
-  // Real MTN MoMo payments: hand each new one to the API, then ask the provider
+  // Real MTN MoMo payments: hand each new one to the API, then ask the gateway
   // what it decided about the ones already asked. Nothing in here can confirm a
-  // payment — it only carries MTN's answer into the store, and that answer is
-  // the only thing that ever activates a subscription or unlocks a unit.
+  // payment — it only carries the gateway's answer into the store, and that
+  // answer is the only thing that ever activates a subscription or unlocks a
+  // unit.
   //
   // Keyed on the payments still needing submission rather than on the whole
   // payments array, so the status updates this loop produces cannot restart it.
   const unsentPayments = state.payments
-    .filter((p) => p.momo === true && p.status === PAYMENT_STATUS.PENDING && !p.apiId)
+    .filter((p) => p.provider === true && p.status === PAYMENT_STATUS.PENDING && !p.apiId)
     .map((p) => p.id)
     .join(',');
 
@@ -1107,7 +1109,7 @@ export function StoreProvider({ children }) {
     let cancelled = false;
 
     const submit = async () => {
-      const due = stateRef.current.payments.find((p) => p.momo === true
+      const due = stateRef.current.payments.find((p) => p.provider === true
         && p.status === PAYMENT_STATUS.PENDING && !p.apiId && !p.submitting);
       if (!due) return;
       dispatch({ type: 'PAYMENT_SUBMITTING', paymentId: due.id });
@@ -1130,7 +1132,7 @@ export function StoreProvider({ children }) {
     };
 
     const poll = async () => {
-      const waiting = stateRef.current.payments.filter((p) => p.momo === true
+      const waiting = stateRef.current.payments.filter((p) => p.provider === true
         && p.status === PAYMENT_STATUS.PENDING && p.apiId);
       for (const p of waiting) {
         try {
@@ -1153,19 +1155,21 @@ export function StoreProvider({ children }) {
   }, [payApi, unsentPayments]);
 
   // Can this server take payments at all? Asked on load and re-asked once a
-  // minute, so a MoMo credential that was just set on Render shows up here —
-  // and a farmer is told before typing a number, not after a wasted attempt.
-  const momoDesc = state.momo ? `${state.momo.enabled}|${(state.momo.missing || []).join(',')}` : '';
+  // minute, so an Ekorana key that was just set on Render shows up here — and a
+  // farmer is told before typing a number, not after a wasted attempt.
+  const providerDesc = state.provider
+    ? `${state.provider.enabled}|${(state.provider.missing || []).join(',')}|${(state.provider.invalid || []).join(',')}`
+    : '';
   useEffect(() => {
     if (!payApi) return undefined;
     let cancelled = false;
     const check = async () => {
       try {
-        const momo = await payApi.momoStatus();
-        if (cancelled || !momo) return;
-        const desc = `${momo.enabled}|${(momo.missing || []).join(',')}`;
-        if (desc === momoDesc) return; // nothing new to say
-        dispatch({ type: 'MOMO_HEALTH', momo });
+        const provider = await payApi.providerStatus();
+        if (cancelled || !provider) return;
+        const desc = `${provider.enabled}|${(provider.missing || []).join(',')}|${(provider.invalid || []).join(',')}`;
+        if (desc === providerDesc) return; // nothing new to say
+        dispatch({ type: 'PROVIDER_HEALTH', provider });
       } catch {
         /* an API older than this app: say nothing rather than guess */
       }
@@ -1176,7 +1180,7 @@ export function StoreProvider({ children }) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [payApi, momoDesc]);
+  }, [payApi, providerDesc]);
 
   useEffect(() => {
     if (!state.toast) return undefined;

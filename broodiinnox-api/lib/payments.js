@@ -10,17 +10,30 @@
  *   payment.
  *
  * Records live in the store (CockroachDB, or memory in dev); the routes and
- * the MoMo callback go through these functions, so the rule is in one place.
+ * the gateway callback go through these functions, so the rule is in one place.
  */
 import { buildControlMessage } from './commands.js';
 import { DEVICE_ID_RE } from './constants.js';
-import { normalizeMsisdn } from './momo.js';
+import { normalizeMsisdn } from './ekopay.js';
 
 export const PAYMENT_STATUS = { PENDING: 'pending', SUCCESSFUL: 'successful', FAILED: 'failed' };
+
+/**
+ * How the farmer paid. The rail is MTN Mobile Money; the Ekorana gateway is
+ * what collects it, and that is broodiinnox-api's business, not the record's.
+ */
 export const PAYMENT_METHOD = 'MTN MoMo';
 
-/** A single MoMo payment is a subscription term — no sensible amount is larger. */
+/** A single payment is a subscription term — no sensible amount is larger. */
 export const MAX_AMOUNT = 100_000_000;
+
+/**
+ * The Ekorana gateway refuses anything under 50 RWF ("amount must be at least
+ * 50"), so a request below it is refused here, before it can be sent: a farmer
+ * who has typed a price that cannot be collected is told now, not after a
+ * round trip that was always going to fail.
+ */
+export const MIN_AMOUNT = 50;
 
 /**
  * A second request for the same device while one is still pending is the same
@@ -33,7 +46,7 @@ export const PENDING_REUSE_MS = 120_000;
 export const STATUS_POLL_AFTER_MS = 5_000;
 
 export const PHONE_ERROR = 'Enter a valid MTN MoMo number, e.g. 0788123456 or 250788123456.';
-export const AMOUNT_ERROR = `The amount must be a whole number of RWF between 1 and ${MAX_AMOUNT.toLocaleString('en-US')}.`;
+export const AMOUNT_ERROR = `The amount must be a whole number of RWF between ${MIN_AMOUNT} and ${MAX_AMOUNT.toLocaleString('en-US')}.`;
 
 /**
  * Validate a payment request from the dashboard.
@@ -46,7 +59,7 @@ export function validatePaymentInput(body, { currency = 'RWF', countryCode = '25
   if (!DEVICE_ID_RE.test(deviceId)) return fail(`Invalid device_id "${deviceId}" — must match /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/`);
 
   const amount = Number(body?.amount);
-  if (!Number.isInteger(amount) || amount <= 0 || amount > MAX_AMOUNT) return fail(AMOUNT_ERROR);
+  if (!Number.isInteger(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT) return fail(AMOUNT_ERROR);
 
   const cur = (typeof body?.currency === 'string' && body.currency.trim() ? body.currency.trim() : currency).toUpperCase();
   if (!/^[A-Z]{3}$/.test(cur)) return fail(`Invalid currency "${body?.currency}" — use the ISO code, e.g. RWF`);
@@ -275,7 +288,7 @@ export function publicPayment(row) {
     farmer_id: row.farmer_id ?? null,
     plan_id: row.plan_id ?? null,
     band_id: row.band_id ?? null,
-    amount: row.amount,
+    amount: numberOrNull(row.amount),
     currency: row.currency,
     phone: row.phone,
     method: row.method,
@@ -295,6 +308,19 @@ function iso(v) {
   if (!v) return null;
   const t = v instanceof Date ? v.getTime() : Date.parse(v);
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+/**
+ * CockroachDB's INT is a 64-bit integer, which node-postgres hands back as a
+ * STRING (it cannot promise a JS number holds it). The amount is the one
+ * numeric field the dashboard reads as money, so it is normalized here: the
+ * app's `amount` is a number whichever store answered, instead of silently
+ * becoming null the moment the live API is the one answering.
+ */
+function numberOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
