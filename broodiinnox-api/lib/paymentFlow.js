@@ -38,6 +38,52 @@ import {
 
 const nowIso = () => new Date().toISOString();
 
+/**
+ * The one token to grep the production log for.
+ *
+ * Render's access log carries no request path — only a client IP, a status and
+ * a byte count — so without a line of our own a callback is invisible, and an
+ * investigation has to guess at one from a client IP and a response size. That
+ * is exactly what happened while chasing the RWF 25,000 payment, and it very
+ * nearly produced the wrong answer.
+ */
+export const EKOPAY_CALLBACK_LOG_PREFIX = '[ekopay] callback';
+
+/**
+ * Log one callback, then hand its reply back unchanged.
+ *
+ * EVERY callback this handler answers goes through here, refusals included, so
+ * the line is a true record of arrivals: no line means Ekorana did not call.
+ * A log that records only the interesting outcomes cannot answer the only
+ * question asked of it — did the webhook arrive?
+ *
+ * It prints fixed primitives and nothing else. No request body, no gateway
+ * message, no URL: none of it, so no credential can reach the log whatever the
+ * gateway sends back (the API key travels as a query parameter, which makes
+ * echoing a URL a live risk). The reason is a code from our own vocabulary,
+ * never free text.
+ *
+ * And it cannot fail the callback it describes — a lost log line is worth far
+ * less than the money the callback is carrying.
+ */
+function callbackReply({ status, body, ref, event, payment = null, reason = null, confirmed = null }) {
+  try {
+    const parts = [
+      `event=${event}`,
+      `http=${status}`,
+      `ref=${ref || '-'}`,
+      `payment=${payment?.id || '-'}`,
+      `payment_status=${payment?.status || '-'}`,
+    ];
+    if (reason) parts.push(`reason=${reason}`);
+    if (confirmed !== null) parts.push(`confirmed=${confirmed}`);
+    console.log(`${EKOPAY_CALLBACK_LOG_PREFIX} ${parts.join(' ')}`);
+  } catch {
+    // never let the record of a callback break the callback
+  }
+  return { status, body };
+}
+
 /** Resolve the gateway configuration and build the client (null when unconfigured). */
 export function ekopayFromEnv(env, fetchImpl) {
   const config = resolveEkopayConfig(env);
@@ -223,6 +269,10 @@ export async function refreshPayment({ store, bridge, paymentId, env = process.e
  * no-op for a unit that already reports itself unlocked, which is also what
  * makes it a second chance for one whose bridge was down when the first
  * callback landed.
+ *
+ * Every answer it gives is logged once, whatever the outcome — see
+ * `callbackReply` — so the production log, not an inference, says whether
+ * Ekorana called and what it was told to do.
  */
 export async function handleEkopayCallback({ store, bridge, body, reference, env = process.env, fetchImpl, now = nowIso(), prefix } = {}) {
   const ref = firstString(body?.referenceId, body?.reference_id, reference, body?.externalId, body?.external_id, body?.id);
@@ -233,12 +283,23 @@ export async function handleEkopayCallback({ store, bridge, body, reference, env
     payment = (await store.listPayments({ limit: 200 })).find((p) => p.provider_ref === ref) || null;
   }
   if (!payment) {
-    return { status: 404, body: { error: 'Unknown Ekorana reference', reference: ref || null } };
+    return callbackReply({
+      status: 404,
+      event: 'unknown-reference',
+      ref,
+      body: { error: 'Unknown Ekorana reference', reference: ref || null },
+    });
   }
 
   const { config, client } = ekopayFromEnv(env, fetchImpl);
   if (!config.enabled || !client) {
-    return { status: 202, body: { received: true, verified: false, payment: publicPayment(payment) } };
+    return callbackReply({
+      status: 202,
+      event: 'unconfigured',
+      ref,
+      payment,
+      body: { received: true, verified: false, payment: publicPayment(payment) },
+    });
   }
 
   let provider;
@@ -247,10 +308,14 @@ export async function handleEkopayCallback({ store, bridge, body, reference, env
   } catch (err) {
     // Keep it pending: the poll (or the next callback) decides.
     const touched = await store.updatePayment(payment.id, paymentPatch(paymentTouched(payment, now)));
-    return {
+    return callbackReply({
       status: 202,
+      event: 'verify-failed',
+      ref,
+      payment: touched || payment,
+      reason: ekopayFailureReason(err),
       body: { received: true, verified: false, error: ekopayErrorMessage(err), payment: publicPayment(touched || payment) },
-    };
+    });
   }
 
   const applied = applyProviderStatus(payment, provider, now);
@@ -264,10 +329,14 @@ export async function handleEkopayCallback({ store, bridge, body, reference, env
       payment: stored || payment, device,
     });
   }
-  return {
+  return callbackReply({
     status: 200,
+    event: 'verified',
+    ref,
+    payment: stored || applied.payment,
+    confirmed: Boolean(applied.confirmed),
     body: { received: true, verified: true, confirmed: applied.confirmed, payment: publicPayment(stored || applied.payment), device_unlock: unlock },
-  };
+  });
 }
 
 function firstString(...vals) {

@@ -3,6 +3,11 @@ dist/
 *.log
 .DS_Store
 
+# credentials — never commit; broodiinnox-api/.env.example shows the shape
+.env
+.env.local
+.env*.local
+
 # workspace documentation & helper scripts (not part of the app)
 _extracted/
 *.pdf

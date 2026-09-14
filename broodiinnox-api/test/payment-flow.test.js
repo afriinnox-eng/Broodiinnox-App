@@ -506,3 +506,103 @@ test('the whole flow reads back through the store as the dashboard sees it', asy
   assert.deepEqual(one, listed[0]);
   assert.equal(publicPayment(await store.getPayment('pay_missing')), null);
 });
+
+/* ------------------------------------------------------------------ */
+/* The callback log: an absent line means Ekorana did not call          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The exact shape of a callback log line — fixed fields, one line, no free
+ * text. Asserting the shape rather than a sample is what makes it a guarantee:
+ * a body, a gateway message or a URL could not fit this pattern.
+ */
+const CALLBACK_LINE = /^\[ekopay\] callback event=[a-z-]+ http=\d{3} ref=\S+ payment=\S+ payment_status=\S+( reason=\S+)?( confirmed=(true|false))?$/;
+
+/** Capture what the callback logs, and hand back the callback lines only. */
+function captureCallbackLogs(t) {
+  const lines = [];
+  t.mock.method(console, 'log', (...args) => { lines.push(args.map(String).join(' ')); });
+  return () => lines.filter((l) => l.startsWith('[ekopay] callback'));
+}
+
+test('every callback is logged exactly once, refusal and success alike', async (t) => {
+  const store = await storeWithDevice();
+  const bridge = fakeBridge();
+  const created = await createPaymentRequest({ store, body: BODY, env: ENV, fetchImpl: fakeEkopay() });
+  const id = created.body.payment.id;
+  const logs = captureCallbackLogs(t);
+
+  // Creating the payment is not a callback and must not be logged as one.
+  assert.equal(logs().length, 0);
+
+  const unknown = await handleEkopayCallback({ store, bridge, body: { referenceId: 'pay_nope' }, env: ENV, fetchImpl: fakeEkopay() });
+  assert.equal(unknown.status, 404);
+  assert.equal(logs().length, 1);
+
+  const unconfigured = await handleEkopayCallback({ store, bridge, body: { referenceId: id }, env: {}, fetchImpl: fakeEkopay() });
+  assert.equal(unconfigured.status, 202);
+  assert.equal(logs().length, 2);
+
+  const broken = async () => ({ ok: false, status: 503, text: async () => JSON.stringify({ error: 'down' }) });
+  const unverified = await handleEkopayCallback({ store, bridge, body: { referenceId: id }, env: ENV, fetchImpl: broken });
+  assert.equal(unverified.status, 202);
+  assert.equal(logs().length, 3);
+
+  const verified = await handleEkopayCallback({
+    store, bridge, body: { referenceId: id }, env: ENV,
+    fetchImpl: fakeEkopay({ verify: { status: 'success', statusCode: 200, amount: 12_000 } }),
+  });
+  assert.equal(verified.status, 200);
+  assert.equal(logs().length, 4);
+
+  const lines = logs();
+  for (const line of lines) assert.match(line, CALLBACK_LINE, `unexpected log line: ${line}`);
+  assert.match(lines[0], /event=unknown-reference http=404/);
+  assert.match(lines[1], /event=unconfigured http=202/);
+  assert.match(lines[2], /event=verify-failed http=202/);
+  assert.match(lines[3], /event=verified http=200/);
+  assert.match(lines[3], new RegExp(`payment=${id} payment_status=successful confirmed=true`));
+});
+
+test('a callback with no usable body still leaves exactly one line', async (t) => {
+  const store = await storeWithDevice();
+  const logs = captureCallbackLogs(t);
+
+  // Nothing a caller can send — or fail to send — may make a callback silent.
+  const bodies = [null, {}, { referenceId: 42 }, { referenceId: '   ' }, { reference: { nested: true } }, 'not json at all'];
+  for (const body of bodies) {
+    const out = await handleEkopayCallback({ store, bridge: fakeBridge(), body, env: ENV, fetchImpl: fakeEkopay() });
+    assert.equal(out.status, 404);
+  }
+
+  const lines = logs();
+  assert.equal(lines.length, bodies.length, 'one line per callback, body or no body');
+  for (const line of lines) {
+    assert.match(line, CALLBACK_LINE);
+    assert.match(line, /ref=-/, 'a unusable reference is shown as absent, never dropped');
+  }
+});
+
+test('the callback log carries fixed fields only — never the key, never gateway text', async (t) => {
+  const store = await storeWithDevice();
+  const secret = 'Prod_KEY_SHAPED_LIKE_THE_REAL_ONE';
+  const env = { ...ENV, EKOPAY_API_KEY: secret };
+  const created = await createPaymentRequest({ store, body: BODY, env, fetchImpl: fakeEkopay() });
+  const logs = captureCallbackLogs(t);
+
+  // The worst case for a leak: the gateway hands back a message containing the
+  // key it was sent. The key travels as a query parameter, so echoing anything
+  // the gateway said is a real risk — and the reason we log is a code of ours.
+  const leaky = async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ error: `Invalid API key: ${secret}` }) });
+  const out = await handleEkopayCallback({
+    store, bridge: fakeBridge(), body: { referenceId: created.body.payment.id }, env, fetchImpl: leaky,
+  });
+
+  assert.equal(out.status, 202);
+  const lines = logs();
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], CALLBACK_LINE);
+  assert.match(lines[0], /reason=\S+/);
+  assert.ok(!lines[0].includes(secret), 'the API key must never reach the log');
+  assert.ok(!lines[0].includes('Invalid API key'), 'gateway free text must never reach the log');
+});
