@@ -331,3 +331,85 @@ test('verifyMomoCredentials: a token that works but a product that refuses is no
   assert.equal(verdict.step, 'collections');
   assert.equal(verdict.status, 403);
 });
+
+/* INVARIANT: for EVERY way the configuration can be incomplete — any subset of
+ * the three, any of them blank, an unusable provider host — the answer is a
+ * config verdict that names what is missing, and MTN is never called. */
+test('verifyMomoCredentials: no incomplete configuration ever reaches MTN', async () => {
+  const incomplete = [];
+
+  // every subset of the three credentials except the complete one
+  for (let mask = 0; mask < 7; mask++) {
+    const env = { MOMO_BASE_URL: ENV.MOMO_BASE_URL };
+    MOMO_REQUIRED_ENV.forEach((k, i) => { if (mask & (1 << i)) env[k] = 'a-value'; });
+    incomplete.push({ env, missing: MOMO_REQUIRED_ENV.filter((_, i) => !(mask & (1 << i))) });
+  }
+
+  // each credential present but blank — a whitespace value is not a value
+  for (const blank of MOMO_REQUIRED_ENV) {
+    const env = { ...ENV, [blank]: '   ' };
+    incomplete.push({ env, missing: [blank] });
+  }
+
+  // credentials fine, provider host unusable
+  for (const bad of ['not-a-url', 'ftp://momo.example.com']) {
+    incomplete.push({ env: { ...ENV, MOMO_BASE_URL: bad }, missing: ['MOMO_BASE_URL'] });
+  }
+
+  for (const { env, missing } of incomplete) {
+    const fetchImpl = fakeFetch(() => ({ status: 200, body: {} }));
+    const verdict = await verifyMomoCredentials(resolveMomoConfig(env), { fetchImpl });
+
+    assert.equal(verdict.ok, false, `incomplete config must never pass: ${JSON.stringify(missing)}`);
+    assert.equal(verdict.step, 'config');
+    assert.equal(fetchImpl.calls.length, 0, `nothing may be asked of MTN without complete credentials: ${JSON.stringify(missing)}`);
+    for (const k of missing) assert.match(verdict.message, new RegExp(k), `the message must name ${k}`);
+  }
+
+  assert.equal(incomplete.length, 7 + MOMO_REQUIRED_ENV.length + 2, 'every incomplete shape was exercised');
+});
+
+/* INVARIANT: ok is true ONLY for a provider that answered. No rejection status,
+ * however the provider words it, is ever a pass — and no verdict ever carries a
+ * credential value. */
+test('verifyMomoCredentials: no provider rejection is ever a pass', async () => {
+  for (const status of [400, 401, 403, 404, 409, 429, 500, 502, 503]) {
+    const fetchImpl = fakeFetch(() => ({ status, body: { reason: 'SOMETHING_NEW' } }));
+    const verdict = await verifyMomoCredentials(resolveMomoConfig(ENV), { fetchImpl });
+
+    assert.equal(verdict.ok, false, `HTTP ${status} must not be a pass`);
+    assert.equal(verdict.status, status);
+    assert.equal(typeof verdict.message, 'string');
+    assert.ok(verdict.message.length > 0, `HTTP ${status} must say something an operator can act on`);
+    assert.ok(!JSON.stringify(verdict).includes(ENV.MOMO_SUBSCRIPTION_KEY), 'never echo a credential');
+    assert.ok(!JSON.stringify(verdict).includes(ENV.MOMO_API_KEY), 'never echo a credential');
+  }
+});
+
+/* INVARIANT: a provider that cannot be reached, one that never answers, and a
+ * config that is 'enabled' but yields no token all produce a verdict — the
+ * check never throws and never claims a pass it did not receive. */
+test('verifyMomoCredentials: an unreachable or silent provider is a verdict, not a crash', async () => {
+  const unreachable = await verifyMomoCredentials(resolveMomoConfig(ENV), {
+    fetchImpl: async () => { throw new Error('getaddrinfo ENOTFOUND'); },
+  });
+  assert.equal(unreachable.ok, false);
+  assert.equal(unreachable.step, 'token');
+  assert.equal(unreachable.status, null);
+  assert.match(unreachable.message, /Could not reach MTN MoMo/);
+
+  const silent = await verifyMomoCredentials(resolveMomoConfig({ ...ENV, MOMO_TIMEOUT_MS: '20' }), {
+    fetchImpl: (url, opts) => new Promise((_, reject) => {
+      opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    }),
+  });
+  assert.equal(silent.ok, false);
+  assert.equal(silent.step, 'token');
+  assert.match(silent.message, /did not answer in time/);
+
+  const tokenless = await verifyMomoCredentials({ enabled: true }, {
+    fetchImpl: fakeFetch(() => ({ status: 200, body: {} })),
+  });
+  assert.equal(tokenless.ok, false, 'no access token means no pass');
+  assert.equal(tokenless.step, 'token');
+});
