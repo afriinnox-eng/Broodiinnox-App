@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, Card, DataTable, downloadCsv, Stat } from '../../components/ui.jsx';
 import { Icon } from '../../components/icons.jsx';
+import { momoDisabledNote, momoFailureNote } from '../../lib/payments.js';
 import { fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
@@ -9,6 +10,9 @@ export default function AdminPayments() {
   const { state } = useStore();
   const lang = state.lang || 'en';
   const [statusF, setStatusF] = useState('all');
+  // What the API reports about MTN MoMo: whether it can collect at all, and
+  // which env vars are still missing. The names only — never a value.
+  const momoOff = state.momo ? state.momo.enabled === false : false;
   const farmers = useMemo(() => Object.fromEntries(state.farmers.map((f) => [f.id, f.name])), [state.farmers]);
   const payments = useMemo(() => {
     let list = state.payments;
@@ -26,12 +30,22 @@ export default function AdminPayments() {
   const exportRows = payments.map((p) => ({
     Date: fmtDateTime(p.createdAt), Farmer: farmers[p.farmerId] || p.farmerId, System: p.deviceId,
     Plan: state.plans.find((x) => x.id === p.planId)?.name || '', Amount: p.amount, Method: p.method,
-    Status: p.status, 'Provider ref': p.providerRef || '', Phone: p.phone || '',
+    Status: p.status, 'Provider confirmed': p.providerConfirmed === true ? 'yes' : 'no',
+    'Provider ref': p.providerRef || '', 'MTN transaction': p.financialTxId || '',
+    'Failure reason': p.failureReason || '', Phone: p.phone || '',
   }));
 
   return (
     <div>
       <h1>{t('nav.payments', lang)}</h1>
+
+      {momoOff && (
+        <div className="warn-banner" style={{ margin: '12px 0' }}>
+          <Icon name="alert" size={20} />
+          <div>{momoDisabledNote(state.momo)}</div>
+        </div>
+      )}
+
       <div className="grid cols-4" style={{ margin: '14px 0' }}>
         <Stat icon="wallet" label="Revenue today" value={fmtMoney(rev(dayStart))} tone="green" />
         <Stat icon="calendar" label="Revenue this month" value={fmtMoney(rev(monthStart))} tone="green" />
@@ -41,6 +55,11 @@ export default function AdminPayments() {
 
       <div className="row-between">
         <div className="row">
+          <Badge tone={state.momo ? (momoOff ? 'crit' : 'ok') : 'off'}>
+            {state.momo
+              ? (momoOff ? 'MTN MoMo: not configured' : 'MTN MoMo: collecting payments')
+              : 'MTN MoMo: unknown'}
+          </Badge>
           <select className="field" style={{ width: 'auto', marginBottom: 0 }} value={statusF} onChange={(e) => setStatusF(e.target.value)}>
             <option value="all">All statuses</option>
             {['successful', 'pending', 'failed', 'cancelled', 'refunded'].map((s) => <option key={s} value={s}>{s}</option>)}
@@ -58,7 +77,20 @@ export default function AdminPayments() {
             { key: 'plan', label: 'Plan', render: (r) => state.plans.find((x) => x.id === r.planId)?.name || '—' },
             { key: 'amount', label: 'Amount', render: (r) => <b>{fmtMoney(r.amount)}</b> },
             { key: 'method', label: 'Method', render: (r) => `${r.method}${r.phone ? ` · ${r.phone}` : ''}` },
-            { key: 'status', label: 'Status', render: (r) => <Badge tone={{ successful: 'ok', pending: 'warn', failed: 'crit', cancelled: 'off', refunded: 'off' }[r.status] || 'off'}>{r.status}</Badge> },
+            {
+              key: 'status',
+              label: 'Status',
+              render: (r) => (
+                <div style={{ maxWidth: 340 }}>
+                  <Badge tone={{ successful: 'ok', pending: 'warn', failed: 'crit', cancelled: 'off', refunded: 'off' }[r.status] || 'off'}>{r.status}</Badge>
+                  {r.status === 'successful' && r.providerConfirmed === true
+                    && <div className="muted small">verified by MTN MoMo</div>}
+                  {r.status === 'failed' && (
+                    <div className="small" style={{ color: 'var(--crit)' }}>{momoFailureNote(r)}</div>
+                  )}
+                </div>
+              ),
+            },
             { key: 'ref', label: 'Provider ref', render: (r) => <span className="muted small">{r.providerRef || '—'}</span> },
           ]}
           rows={payments.map((p) => ({ ...p, _key: p.id }))}

@@ -8,6 +8,9 @@ import {
   deviceMode, liveCommandPlan, liveConfig, overlayLiveDevice, powerReassertPlan, storeDeviceFromVm,
 } from './live.js';
 import {
+  createPaymentsApi, momoPhoneError, normalizeMomoPhone, paymentsConfig, providerFieldsFromRow,
+} from './payments.js';
+import {
   coverageFor, describeChange, deviceChicks, draftError, planFrom, publishImpact, reconcilePlans,
   sheetBandForChicks, sheetBandLabel, sheetBands, sheetChanges, sheetOf, sheetPrice, termById,
 } from './subscriptions.js';
@@ -352,6 +355,17 @@ function reducer(state, action) {
       const { farmerId, deviceId, planId, phone } = action;
       const dev = state.devices.find((d) => d.id === deviceId);
       const term = planOf(state, planId);
+      // Money leaving somebody's wallet is worth refusing early: a number MTN
+      // MoMo cannot reach is a charge that cannot land, and a system that
+      // already has a prompt live must not be prompted (or charged) twice.
+      // Both checks apply to REAL payments only — the demo's simulated provider
+      // behaves as it always has.
+      if (paymentsConfig.enabled && !normalizeMomoPhone(phone)) {
+        return { ...state, toast: { msg: momoPhoneError(phone), kind: 'error', at: Date.now() } };
+      }
+      if (state.payments.some((p) => p.deviceId === deviceId && p.status === PAYMENT_STATUS.PENDING && p.momo === true)) {
+        return { ...state, toast: { msg: 'A payment for this system is already waiting for MTN MoMo — approve the prompt on your phone, or check its status.', kind: 'error', at: Date.now() } };
+      }
       // The price is the SHEET's price for this farm size as the admin has it
       // now — what a farmer is charged is never a separate opinion.
       const band = sheetBandForChicks(state.sheet, deviceChicks(dev));
@@ -372,12 +386,24 @@ function reducer(state, action) {
           },
         };
       }
+      // The number as MTN MoMo will charge it: the record, the prompt note and
+      // the request all carry one MSISDN, not whatever spacing was typed. A
+      // number that cannot be normalized (the demo provider) is kept as it was.
+      const msisdn = normalizeMomoPhone(phone) || phone;
       const payment = {
-        id: uid('pay'), farmerId, deviceId, planId, phone,
+        id: uid('pay'), farmerId, deviceId, planId, phone: msisdn,
         bandId: band.id, farmSize: deviceChicks(dev), amount,
         method: 'MTN MoMo', status: PAYMENT_STATUS.PENDING,
         providerConfirmed: false, providerRef: null,
         period: `${planName(term)} — ${sheetBandLabel(state.sheet, band)}`, createdAt: nowIso(), confirmedAt: null,
+        // `momo: true` means real money collected by MTN MoMo through the API:
+        // only the provider may settle it (PAYMENT_PROVIDER_STATUS), and only a
+        // provider-confirmed payment unlocks the unit. With no API configured
+        // the built-in simulation settles it, as it always has.
+        momo: paymentsConfig.enabled === true,
+        currency: 'RWF',
+        apiId: null, financialTxId: null, failureReason: null,
+        submitting: false, submitError: null, statusCheckedAt: null,
       };
       return withAudit(
         { ...state, payments: [payment, ...state.payments] },
@@ -386,52 +412,114 @@ function reducer(state, action) {
     }
 
     case 'CONFIRM_PAYMENT': {
+      // The demo provider (and an admin marking a demo payment paid). A REAL
+      // payment is settled by MTN MoMo and by nothing else: pressing a button
+      // in the browser must never unlock a system nobody has paid for.
       const payment = state.payments.find((p) => p.id === action.paymentId);
       if (!payment || payment.status !== PAYMENT_STATUS.PENDING) return state;
-      const ok = action.ok !== undefined ? action.ok : true;
-      const confirmed = { ...payment, status: ok ? PAYMENT_STATUS.SUCCESSFUL : PAYMENT_STATUS.FAILED, providerConfirmed: ok, confirmedAt: nowIso() };
-      let next = { ...state, payments: state.payments.map((p) => (p.id === payment.id ? confirmed : p)) };
-      if (ok) {
-        const term = termById(payment.planId);
-        const start = nowIso();
-        next = {
-          ...next,
-          devices: next.devices.map((d) => {
-            if (d.id !== payment.deviceId) return d;
-            const current = d.subscription;
-            // A renewal EXTENDS the cover the farmer already has instead of
-            // throwing the days left away; the price paid and the farm size it
-            // was bought for are kept as history, not re-derived later.
-            const stillRunning = !!current && current.status === 'active'
-              && Date.parse(current.endDate || '') > Date.parse(start);
-            const beginsAt = stillRunning ? current.endDate : start;
-            return {
-              ...d,
-              subscription: {
-                planId: payment.planId,
-                bandId: payment.bandId ?? current?.bandId ?? null,
-                farmSize: payment.farmSize ?? d.farmSize ?? null,
-                price: stillRunning && typeof current.price === 'number'
-                  ? current.price + payment.amount
-                  : payment.amount,
-                status: 'active',
-                startDate: stillRunning ? current.startDate : start,
-                endDate: term ? addDays(beginsAt, term.days) : beginsAt,
-                batchesUsed: stillRunning ? (current.batchesUsed || 0) : 0,
-              },
-            };
-          }),
-          notifications: [
-            { id: uid('n'), farmerId: payment.farmerId, title: 'Payment received', body: `Your RWF ${payment.amount} payment was confirmed. Device unlocked.`, severity: 'info', read: false, at: nowIso() },
-            ...next.notifications,
-          ],
-        };
+      if (payment.momo === true) {
+        return { ...state, toast: { msg: 'This payment is confirmed by MTN MoMo, not by the app.', kind: 'error', at: Date.now() } };
       }
+      const ok = action.ok !== undefined ? action.ok : true;
       return withAudit(
-        next,
+        applyPaymentOutcome(state, payment, { confirmed: ok, now: nowIso() }),
         { user: state.session?.name, role: state.session?.role, action: ok ? 'payment.success' : 'payment.failed', details: `MoMo payment ${ok ? 'confirmed' : 'failed'} for ${payment.deviceId} (RWF ${payment.amount})` }
       );
     }
+
+    /* ---- the real provider: MTN MoMo, through broodiinnox-api ---- */
+
+    // The request is being handed to the API. The reducer stays pure, so the
+    // call itself lives in the store's effect (see below).
+    case 'PAYMENT_SUBMITTING':
+      return {
+        ...state,
+        payments: state.payments.map((p) => (p.id === action.paymentId ? { ...p, submitting: true, submitError: null } : p)),
+      };
+
+    // The API answered a payment request: either a prompt is live on the
+    // farmer's phone (keep the provider's reference so its status can be
+    // polled) or the request was refused before anything was charged.
+    case 'PAYMENT_PROVIDER_RESULT': {
+      const payment = state.payments.find((p) => p.id === action.paymentId);
+      if (!payment) return state;
+      const fields = providerFieldsFromRow(action.row);
+      if (action.ok) {
+        return {
+          ...state,
+          payments: state.payments.map((p) => (p.id === payment.id
+            ? { ...p, ...(fields || {}), submitting: false, submitError: null }
+            : p)),
+        };
+      }
+      const reason = action.error || 'The MTN MoMo request failed.';
+      return withAudit(
+        {
+          ...state,
+          payments: state.payments.map((p) => (p.id === payment.id
+            ? {
+              ...p,
+              ...(fields || {}),
+              status: PAYMENT_STATUS.FAILED,
+              providerConfirmed: false,
+              submitting: false,
+              submitError: reason,
+              failureReason: reason,
+              confirmedAt: null,
+            }
+            : p)),
+          toast: { msg: reason, kind: 'error', at: Date.now() },
+        },
+        { user: state.session?.name, role: state.session?.role, action: 'payment.failed', details: `MoMo payment for ${payment.deviceId} (RWF ${payment.amount}) was not requested: ${reason}` }
+      );
+    }
+
+    // What MTN MoMo decided. This is the ONLY thing that settles a real
+    // payment — a pending one stays pending until the provider answers.
+    case 'PAYMENT_PROVIDER_STATUS': {
+      const payment = state.payments.find((p) => p.id === action.paymentId);
+      if (!payment || payment.status !== PAYMENT_STATUS.PENDING) return state;
+      const fields = providerFieldsFromRow(action.row);
+      if (!fields) return state;
+      const at = nowIso();
+      if (fields.providerStatus === 'successful' && fields.providerConfirmed) {
+        return withAudit(
+          applyPaymentOutcome(state, payment, { confirmed: true, now: at, fields }),
+          {
+            user: state.session?.name,
+            role: state.session?.role,
+            action: 'payment.success',
+            details: `MoMo payment confirmed by MTN for ${payment.deviceId} (RWF ${payment.amount})${fields.financialTxId ? ` — MTN ${fields.financialTxId}` : ''}${fields.providerRef ? `, ref ${fields.providerRef}` : ''}`,
+          }
+        );
+      }
+      if (fields.providerStatus === 'failed') {
+        return withAudit(
+          applyPaymentOutcome(state, payment, { confirmed: false, now: at, fields }),
+          {
+            user: state.session?.name,
+            role: state.session?.role,
+            action: 'payment.failed',
+            details: `MoMo payment failed for ${payment.deviceId} (RWF ${payment.amount})${fields.failureReason ? ` — ${fields.failureReason}` : ''}`,
+          }
+        );
+      }
+      // Still pending: record what the provider said and when, nothing more.
+      return {
+        ...state,
+        payments: state.payments.map((p) => (p.id === payment.id ? { ...p, ...fields } : p)),
+      };
+    }
+
+    // "Check status": no state change here — the API is asked (see
+    // dispatchLive) and the answer arrives as PAYMENT_PROVIDER_STATUS.
+    case 'PAYMENT_CHECK':
+      return state;
+
+    // Whether this server can take payments at all, so the app can say so
+    // before it takes somebody's number instead of failing their payment.
+    case 'MOMO_HEALTH':
+      return { ...state, momo: action.momo ?? null };
 
     /* Plans are edited as part of the price list, through the draft — see the
        SHEET_* actions below — so there is no separate plan write path. */
@@ -716,6 +804,70 @@ function withAudit(state, entry) {
   return { ...state, audit };
 }
 
+/**
+ * Settle a payment and, when it was confirmed, apply what it bought.
+ *
+ * EVERY path that settles a payment goes through here — the demo simulation,
+ * the real one whose verdict arrives from broodiinnox-api, an admin marking a
+ * demo payment paid — so there is exactly one definition of what "paid" does:
+ * the subscription is EXTENDED (days already paid for are never thrown away),
+ * the price and band it was bought at stay on the record as history, and the
+ * farmer is told. A payment that was not confirmed only records why.
+ */
+function applyPaymentOutcome(state, payment, { confirmed, now, fields = null } = {}) {
+  const at = now || nowIso();
+  const settled = {
+    ...payment,
+    ...(fields || {}),
+    status: confirmed ? PAYMENT_STATUS.SUCCESSFUL : PAYMENT_STATUS.FAILED,
+    providerConfirmed: confirmed === true,
+    submitting: false,
+    submitError: confirmed ? null : (fields?.submitError || payment.submitError || null),
+    confirmedAt: confirmed ? at : null,
+    settledAt: at,
+  };
+  if (!confirmed) {
+    return { ...state, payments: state.payments.map((p) => (p.id === settled.id ? settled : p)) };
+  }
+
+  const term = termById(settled.planId);
+  const start = at;
+  const devices = state.devices.map((d) => {
+    if (d.id !== settled.deviceId) return d;
+    const current = d.subscription;
+    // A renewal EXTENDS the cover the farmer already has instead of throwing
+    // the days left away; the price paid is the sum of what was paid.
+    const stillRunning = !!current && current.status === 'active'
+      && Date.parse(current.endDate || '') > Date.parse(start);
+    const beginsAt = stillRunning ? current.endDate : start;
+    return {
+      ...d,
+      subscription: {
+        planId: settled.planId,
+        bandId: settled.bandId ?? current?.bandId ?? null,
+        farmSize: settled.farmSize ?? d.farmSize ?? null,
+        price: stillRunning && typeof current.price === 'number'
+          ? current.price + settled.amount
+          : settled.amount,
+        status: 'active',
+        startDate: stillRunning ? current.startDate : start,
+        endDate: term ? addDays(beginsAt, term.days) : beginsAt,
+        batchesUsed: stillRunning ? (current.batchesUsed || 0) : 0,
+      },
+    };
+  });
+
+  return {
+    ...state,
+    payments: state.payments.map((p) => (p.id === settled.id ? settled : p)),
+    devices,
+    notifications: [
+      { id: uid('n'), farmerId: settled.farmerId, title: 'Payment received', body: `Your RWF ${settled.amount} payment was confirmed. Device unlocked.`, severity: 'info', read: false, at },
+      ...state.notifications,
+    ],
+  };
+}
+
 /** The plan an id refers to: the app's own plans first, the published terms second. */
 function planOf(state, id) {
   return planFrom(state.plans, id);
@@ -810,6 +962,9 @@ function tick(state) {
   let payments = state.payments;
   let devices2 = devices;
   for (const p of payments) {
+    // A REAL payment is settled only by MTN's own answer, which the app reads
+    // from the API: the demo ticker must never confirm one.
+    if (p.momo === true) continue;
     if (p.status === PAYMENT_STATUS.PENDING && new Date(now) - new Date(p.createdAt) > 30000) {
       const ok = simulateMoMo(p).status === PAYMENT_STATUS.SUCCESSFUL;
       payments = payments.map((x) => (x.id === p.id ? { ...x, status: ok ? PAYMENT_STATUS.SUCCESSFUL : PAYMENT_STATUS.FAILED, providerConfirmed: ok, confirmedAt: now } : x));
@@ -864,6 +1019,10 @@ export function StoreProvider({ children }) {
 
   // Live API client (null when VITE_IOT_API_URL is unset — simulation mode).
   const api = useMemo(() => (liveConfig.enabled ? createIotApi(liveConfig) : null), []);
+
+  // MTN MoMo client (null when no API is configured — the built-in simulation
+  // settles its own payments then, exactly as it always has).
+  const payApi = useMemo(() => (paymentsConfig.enabled ? createPaymentsApi(paymentsConfig) : null), []);
 
   useEffect(() => {
     try {
@@ -931,6 +1090,94 @@ export function StoreProvider({ children }) {
     };
   }, [api]);
 
+  // Real MTN MoMo payments: hand each new one to the API, then ask the provider
+  // what it decided about the ones already asked. Nothing in here can confirm a
+  // payment — it only carries MTN's answer into the store, and that answer is
+  // the only thing that ever activates a subscription or unlocks a unit.
+  //
+  // Keyed on the payments still needing submission rather than on the whole
+  // payments array, so the status updates this loop produces cannot restart it.
+  const unsentPayments = state.payments
+    .filter((p) => p.momo === true && p.status === PAYMENT_STATUS.PENDING && !p.apiId)
+    .map((p) => p.id)
+    .join(',');
+
+  useEffect(() => {
+    if (!payApi) return undefined;
+    let cancelled = false;
+
+    const submit = async () => {
+      const due = stateRef.current.payments.find((p) => p.momo === true
+        && p.status === PAYMENT_STATUS.PENDING && !p.apiId && !p.submitting);
+      if (!due) return;
+      dispatch({ type: 'PAYMENT_SUBMITTING', paymentId: due.id });
+      try {
+        const out = await payApi.requestPayment({
+          device_id: due.deviceId,
+          farmer_id: due.farmerId,
+          plan_id: due.planId,
+          band_id: due.bandId,
+          amount: due.amount,
+          phone: due.phone,
+          currency: due.currency || 'RWF',
+        });
+        if (cancelled) return;
+        dispatch({ type: 'PAYMENT_PROVIDER_RESULT', paymentId: due.id, ok: true, row: out?.payment || null });
+      } catch (err) {
+        if (cancelled) return;
+        dispatch({ type: 'PAYMENT_PROVIDER_RESULT', paymentId: due.id, ok: false, error: err?.message, row: err?.payment || null });
+      }
+    };
+
+    const poll = async () => {
+      const waiting = stateRef.current.payments.filter((p) => p.momo === true
+        && p.status === PAYMENT_STATUS.PENDING && p.apiId);
+      for (const p of waiting) {
+        try {
+          const out = await payApi.getPayment(p.apiId);
+          if (cancelled) return;
+          if (out?.payment) dispatch({ type: 'PAYMENT_PROVIDER_STATUS', paymentId: p.id, row: out.payment });
+        } catch {
+          /* the next poll asks again: a slow provider is not a failed payment */
+        }
+      }
+    };
+
+    submit();
+    poll();
+    const timer = setInterval(() => { submit(); poll(); }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [payApi, unsentPayments]);
+
+  // Can this server take payments at all? Asked on load and re-asked once a
+  // minute, so a MoMo credential that was just set on Render shows up here —
+  // and a farmer is told before typing a number, not after a wasted attempt.
+  const momoDesc = state.momo ? `${state.momo.enabled}|${(state.momo.missing || []).join(',')}` : '';
+  useEffect(() => {
+    if (!payApi) return undefined;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const momo = await payApi.momoStatus();
+        if (cancelled || !momo) return;
+        const desc = `${momo.enabled}|${(momo.missing || []).join(',')}`;
+        if (desc === momoDesc) return; // nothing new to say
+        dispatch({ type: 'MOMO_HEALTH', momo });
+      } catch {
+        /* an API older than this app: say nothing rather than guess */
+      }
+    };
+    check();
+    const timer = setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [payApi, momoDesc]);
+
   useEffect(() => {
     if (!state.toast) return undefined;
     const t = setTimeout(() => dispatch({ type: 'CLEAR_TOAST' }), 3600);
@@ -945,6 +1192,20 @@ export function StoreProvider({ children }) {
     const st = stateRef.current;
     const toastErr = (err) =>
       dispatch({ type: 'TOAST', msg: `Live: ${err?.message || 'request failed'}`, kind: 'error' });
+
+    // "Check status": ask the API for MTN's verdict on one payment now, rather
+    // than waiting for the next poll. The answer is what settles it — never
+    // this call itself.
+    if (action?.type === 'PAYMENT_CHECK') {
+      const p = st.payments.find((x) => x.id === action.paymentId);
+      if (!p?.apiId) return;
+      payApi.refreshPayment(p.apiId)
+        .then((out) => {
+          if (out?.payment) dispatch({ type: 'PAYMENT_PROVIDER_STATUS', paymentId: p.id, row: out.payment });
+        })
+        .catch((err) => dispatch({ type: 'TOAST', msg: err?.message || 'Could not check the payment with MTN MoMo.', kind: 'error' }));
+      return;
+    }
     if (action?.type === 'REGISTER_DEVICE') {
       const location = typeof action.location === 'string' ? action.location : action.location?.district || '';
       api.registerDevice({
@@ -994,7 +1255,7 @@ export function StoreProvider({ children }) {
     for (const c of plan) {
       api.sendCommand(action.deviceId, c.command, c.value).catch(toastErr);
     }
-  }, [api]);
+  }, [api, payApi]);
 
   const value = useMemo(() => ({ state, dispatch: dispatchLive }), [state, dispatchLive]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

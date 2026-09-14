@@ -161,10 +161,62 @@ days fall outside a whole batch. Renewing **extends** cover instead of replacing
 it, so days already paid for are never thrown away, and the price paid and the
 band it was bought for stay on the record as history.
 
-Note: the farm size lives in the app's own data (with the rest of the
-subscription and MoMo-payment layer, which is simulated end to end). A unit that
-arrives only from the broodiinnox-api has no farm size until an admin sets one,
-and the app says so rather than quoting it a price.
+Note: the farm size lives in the app's own data. A unit that arrives only from
+the broodiinnox-api has no farm size until an admin sets one, and the app says so
+rather than quoting it a price. Payments are real MTN Mobile Money when the API
+is configured with MoMo credentials, and the built-in simulation otherwise — see
+"Payments" below.
+
+## Payments — MTN Mobile Money
+
+A farmer pays for a subscription from **Subscriptions** or **Payments** →
+"Request MoMo payment". No card, no typed amount: the price comes from the
+published sheet, and the money is collected from the farmer's MTN MoMo wallet.
+
+| Step | Where it happens |
+|---|---|
+| The app prices the payment from the published sheet and records it as `pending` | `src/lib/store.jsx` (`REQUEST_PAYMENT`) |
+| It asks the API for the money — `POST /api/payments` | `src/lib/payments.js` |
+| The API asks MTN MoMo to collect (request-to-pay) | `broodiinnox-api/lib/momo.js` |
+| MTN prompts the payer's phone; the farmer approves with their MoMo PIN | MTN |
+| The app polls `GET /api/payments/:id`; MTN also posts to the callback if `MOMO_CALLBACK_URL` is set | `broodiinnox-api/lib/paymentFlow.js` |
+| On a **confirmed** payment the subscription is activated and the locked unit is unlocked (`device_active=ACTIVE`) | store + API |
+
+**The provider is the only thing that confirms a payment.** The dashboard can
+request one and display one; it can never mark one successful, and the API
+refuses to treat anything but MTN's own answer as confirmation — including an
+amount that is not the amount requested, and including a callback payload that
+MTN itself does not back up. Until that answer arrives the device stays locked.
+
+### Turning it on
+
+The dashboard needs only `VITE_IOT_API_URL` (already set on the Render static
+site). The **credentials live on the server** — in the `broodiinnox-api` service
+on Render → *Environment* (or `broodiinnox-api/.env` locally):
+
+```
+MOMO_SUBSCRIPTION_KEY=<Collections subscription key>
+MOMO_API_USER=<API user UUID>
+MOMO_API_KEY=<API key>
+MOMO_TARGET_ENVIRONMENT=sandbox        # or the live environment MTN Rwanda gives you
+MOMO_BASE_URL=https://sandbox.momodeveloper.mtn.com
+MOMO_CURRENCY=RWF
+MOMO_CALLBACK_URL=https://broodiinnox-api.onrender.com/api/payments/momo/callback
+```
+
+`broodiinnox-api/.env.example` documents each one, and
+`broodiinnox-api/README.md` explains how to create the sandbox credentials and
+switch to live. After setting them, `GET /api/health` answers
+`"momo": { "enabled": true, "missing": [] }` — that confirms the server is
+*configured*. To confirm MTN actually **accepts** the credentials — an expired
+key, a key for another product and a key for the other environment look
+identical to `/api/health` — run
+`node broodiinnox-api/scripts/momo-check.mjs`: exit 0 and a farmer can pay.
+
+Until those exist the app says so plainly: the payment is refused with the
+server's own message (which names the missing variable) and nothing is charged.
+In demo mode — no `VITE_IOT_API_URL` at all — the seeded simulation still
+confirms its own payments after 30 s, so the sample data keeps working.
 
 ## Deploy (Render)
 

@@ -90,3 +90,30 @@ CREATE TABLE IF NOT EXISTS commands_log (
   error     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_commands_device_ts ON commands_log (device_id, ts DESC);
+
+-- MTN Mobile Money collection requests. `provider_confirmed` is only ever set
+-- by the provider's own status answer (or an API-side re-check of a callback),
+-- and a device is unlocked only by a payment whose `provider_confirmed` is true.
+CREATE TABLE IF NOT EXISTS payments (
+  id                 TEXT PRIMARY KEY,
+  device_id          TEXT NOT NULL,
+  farmer_id          TEXT,
+  plan_id            TEXT,
+  band_id            TEXT,
+  amount             INT NOT NULL,
+  currency           TEXT NOT NULL DEFAULT 'RWF',
+  phone              TEXT NOT NULL,
+  method             TEXT NOT NULL DEFAULT 'MTN MoMo',
+  status             TEXT NOT NULL DEFAULT 'pending',
+  provider_confirmed BOOL NOT NULL DEFAULT FALSE,
+  provider_ref       TEXT,
+  financial_tx_id    TEXT,
+  reason             TEXT,
+  payer_message      TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  confirmed_at       TIMESTAMPTZ,
+  status_checked_at  TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_provider_ref ON payments (provider_ref);
+CREATE INDEX IF NOT EXISTS idx_payments_device_ts ON payments (device_id, created_at DESC);

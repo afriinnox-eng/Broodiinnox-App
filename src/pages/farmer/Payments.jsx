@@ -1,25 +1,50 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.jsx';
 import { Badge, Btn, EmptyState } from '../../components/ui.jsx';
+import { Icon } from '../../components/icons.jsx';
 import PayModal from '../../components/PayModal.jsx';
+import { momoDisabledNote, momoFailureNote, momoPendingNote } from '../../lib/payments.js';
 import { fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
 
 export default function FarmerPayments() {
-  const { state } = useStore();
+  const { state, dispatch } = useStore();
   const lang = state.lang || 'en';
   const [payFor, setPayFor] = useState(null);
   const myPayments = useMemo(() => state.payments.filter((p) => p.farmerId === state.session.id), [state.payments, state.session.id]);
   const myDevices = useMemo(() => state.devices.filter((d) => d.farmerId === state.session.id), [state.devices, state.session.id]);
   const planOf = (id) => state.plans.find((p) => p.id === id);
+  // The API reports whether it can collect payments at all (MTN MoMo
+  // credentials present). When it cannot, the farmer is told before typing a
+  // number rather than after a payment that could never be collected.
+  const momoOff = state.momo ? state.momo.enabled === false : false;
 
   return (
     <div>
       <div className="row-between">
         <h1>{t('nav.payments', lang)}</h1>
-        <Btn variant="green" onClick={() => setPayFor(myDevices[0] || { id: null })} disabled={!myDevices.length}>+ New payment</Btn>
+        {/* One button per system: a farmer with two brooders must be able to
+            start a payment for the second one, not only for the first. */}
+        {myDevices.length === 0
+          ? <Btn variant="green" disabled>+ New payment</Btn>
+          : (
+            <div className="row">
+              {myDevices.map((d) => (
+                <Btn key={d.id} variant="green" disabled={momoOff} onClick={() => setPayFor(d)}>
+                  + Pay for {d.name} ({d.serial})
+                </Btn>
+              ))}
+            </div>
+          )}
       </div>
       <p className="muted">Pay subscriptions directly with MTN Mobile Money. Payments are verified with the provider before a device unlocks.</p>
+
+      {momoOff && (
+        <div className="warn-banner" style={{ margin: '12px 0' }}>
+          <Icon name="alert" size={20} />
+          <div>{momoDisabledNote(state.momo)}</div>
+        </div>
+      )}
 
       {myPayments.length === 0 ? <EmptyState icon="wallet" text="No payments yet." /> : (
         <div className="table-wrap" style={{ marginTop: 14 }}>
@@ -33,12 +58,30 @@ export default function FarmerPayments() {
                   <td>{planOf(p.planId)?.name || '—'}</td>
                   <td><b>{fmtMoney(p.amount)}</b></td>
                   <td>{p.method} <span className="muted small">{p.phone}</span></td>
-                  <td>
+                  <td style={{ maxWidth: 340 }}>
                     <Badge tone={{ successful: 'ok', pending: 'warn', failed: 'crit', cancelled: 'off' }[p.status] || 'off'}>
                       {p.status === 'successful' ? 'Successful' : p.status}
                     </Badge>
-                    {p.providerRef && <div className="muted small">{p.providerRef}</div>}
-                    {p.status === 'pending' && <div className="muted small">waiting for provider…</div>}
+                    {p.providerRef && <div className="muted small">MTN ref {p.providerRef}</div>}
+                    {p.status === 'successful' && p.providerConfirmed === true
+                      && <div className="muted small">verified by MTN MoMo</div>}
+                    {p.status === 'pending' && (
+                      <div className="muted small">
+                        {p.momo === true
+                          ? (p.submitting ? 'Sending the request to MTN MoMo…' : momoPendingNote(p))
+                          : 'waiting for provider…'}
+                      </div>
+                    )}
+                    {p.status === 'pending' && p.apiId && (
+                      <Btn small onClick={() => dispatch({ type: 'PAYMENT_CHECK', paymentId: p.id })} disabled={p.submitting}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <Icon name="refresh" size={14} /> Check status with MTN
+                        </span>
+                      </Btn>
+                    )}
+                    {p.status === 'failed' && (
+                      <div className="small" style={{ color: 'var(--crit)' }}>{momoFailureNote(p)}</div>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -90,7 +90,35 @@ CREATE TABLE IF NOT EXISTS commands_log (
   error     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_commands_device_ts ON commands_log (device_id, ts DESC);
+CREATE TABLE IF NOT EXISTS payments (
+  id                 TEXT PRIMARY KEY,
+  device_id          TEXT NOT NULL,
+  farmer_id          TEXT,
+  plan_id            TEXT,
+  band_id            TEXT,
+  amount             INT NOT NULL,
+  currency           TEXT NOT NULL DEFAULT 'RWF',
+  phone              TEXT NOT NULL,
+  method             TEXT NOT NULL DEFAULT 'MTN MoMo',
+  status             TEXT NOT NULL DEFAULT 'pending',
+  provider_confirmed BOOL NOT NULL DEFAULT FALSE,
+  provider_ref       TEXT,
+  financial_tx_id    TEXT,
+  reason             TEXT,
+  payer_message      TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  confirmed_at       TIMESTAMPTZ,
+  status_checked_at  TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_provider_ref ON payments (provider_ref);
+CREATE INDEX IF NOT EXISTS idx_payments_device_ts ON payments (device_id, created_at DESC);
 `;
+
+/** Columns of a payment row, in insert order (mirrors the DDL above). */
+const PAYMENT_SQL_COLUMNS = `id, device_id, farmer_id, plan_id, band_id, amount, currency,
+       phone, method, status, provider_confirmed, provider_ref, financial_tx_id,
+       reason, payer_message, created_at, updated_at, confirmed_at, status_checked_at`;
 
 const STATE_COLUMNS = {
   deviceId: 'device_id', online: 'online', lastSeenAt: 'last_seen_at',
@@ -116,6 +144,8 @@ export class MemoryStore {
     this.readings = new Map(); // deviceId -> [{...row, tsMs}]
     this.alerts = [];
     this.commands = [];
+    this.payments = [];
+    this._paymentSeq = 0;
   }
 
   async init() {}
@@ -202,6 +232,37 @@ export class MemoryStore {
       .reverse()
       .slice(0, limit)
       .map((a) => ({ ...a }));
+  }
+
+  /* ---- payments (MTN MoMo) ---- */
+
+  async createPayment(p) {
+    this._paymentSeq += 1;
+    const row = { ...p, _seq: this._paymentSeq, created_at: p.created_at || new Date().toISOString() };
+    this.payments.push(row);
+    return this.getPayment(row.id);
+  }
+
+  async getPayment(id) {
+    const row = this.payments.find((p) => p.id === id);
+    if (!row) return null;
+    const { _seq, ...rest } = row;
+    return { ...rest };
+  }
+
+  async listPayments({ deviceId, farmerId, limit = 100 } = {}) {
+    return this.payments
+      .filter((p) => (!deviceId || p.device_id === deviceId) && (!farmerId || p.farmer_id === farmerId))
+      .sort((a, b) => (Date.parse(b.created_at) - Date.parse(a.created_at)) || (b._seq - a._seq))
+      .slice(0, Math.min(Math.max(limit, 1), 500))
+      .map(({ _seq, ...rest }) => ({ ...rest }));
+  }
+
+  async updatePayment(id, patch) {
+    const row = this.payments.find((p) => p.id === id);
+    if (!row) return null;
+    Object.assign(row, patch);
+    return this.getPayment(id);
   }
 }
 
@@ -363,6 +424,52 @@ class PostgresStore {
       vals
     );
     return rows;
+  }
+
+  /* ---- payments (MTN MoMo) ---- */
+
+  async createPayment(p) {
+    const { rows } = await this.pool.query(
+      `INSERT INTO payments (${PAYMENT_SQL_COLUMNS})
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       RETURNING *`,
+      [p.id, p.device_id, p.farmer_id || null, p.plan_id || null, p.band_id || null,
+        p.amount, p.currency, p.phone, p.method, p.status, !!p.provider_confirmed,
+        p.provider_ref || null, p.financial_tx_id || null, p.reason || null, p.payer_message || null,
+        p.created_at || new Date(), p.updated_at || new Date(), p.confirmed_at || null, p.status_checked_at || null]
+    );
+    return rows[0];
+  }
+
+  async getPayment(id) {
+    const { rows } = await this.pool.query('SELECT * FROM payments WHERE id = $1', [id]);
+    return rows[0] || null;
+  }
+
+  async listPayments({ deviceId, farmerId, limit = 100 } = {}) {
+    const conds = [];
+    const vals = [];
+    if (deviceId) { vals.push(deviceId); conds.push(`device_id = $${vals.length}`); }
+    if (farmerId) { vals.push(farmerId); conds.push(`farmer_id = $${vals.length}`); }
+    vals.push(Math.min(Math.max(limit, 1), 500));
+    const { rows } = await this.pool.query(
+      `SELECT * FROM payments
+        ${conds.length ? `WHERE ${conds.join(' AND ')}` : ''}
+        ORDER BY created_at DESC LIMIT $${vals.length}`,
+      vals
+    );
+    return rows;
+  }
+
+  async updatePayment(id, patch) {
+    const cols = Object.keys(patch || {});
+    if (!cols.length) return this.getPayment(id);
+    const sets = cols.map((c, i) => `${c} = $${i + 2}`).join(', ');
+    const { rows } = await this.pool.query(
+      `UPDATE payments SET ${sets} WHERE id = $1 RETURNING *`,
+      [id, ...cols.map((c) => patch[c])]
+    );
+    return rows[0] || null;
   }
 }
 

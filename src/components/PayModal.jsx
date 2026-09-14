@@ -4,6 +4,7 @@ import {
   batchDaysRemaining, deviceChicks, planFit, planFrom, sheetBandForChicks, sheetBandLabel,
   sheetBands, sheetPlansForBand, sheetPrice,
 } from '../lib/subscriptions.js';
+import { momoDisabledNote, momoPhoneError } from '../lib/payments.js';
 import { Badge, Btn, Field, Modal } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { fmtMoney } from '../i18n/strings.js';
@@ -26,6 +27,14 @@ export default function PayModal({ device, initialPlanId, onClose }) {
   const [planId, setPlanId] = useState(initialPlanId || state.plans.find((p) => p.active)?.id || state.plans[0]?.id);
   const [phone, setPhone] = useState(state.session.phone || '0788123456');
   const [sending, setSending] = useState(false);
+  // A number MTN MoMo cannot reach is a charge that can never land, so the
+  // button waits for a usable one. The server checks the number again before
+  // anything is charged — this only spares the farmer a wasted round trip.
+  const phoneErr = momoPhoneError(phone);
+  // Whether the server can collect payments at all. The API answers this on
+  // /api/health; when it cannot, no number is worth typing and the reason is
+  // shown instead of a button that would fail.
+  const momoOff = state.momo ? state.momo.enabled === false : false;
 
   const plan = planFrom(state.plans, planId);
   const price = sheetPrice(sheet, band, plan);
@@ -41,6 +50,7 @@ export default function PayModal({ device, initialPlanId, onClose }) {
   const running = device.subscription?.status === 'active' && runningDaysLeft > 0;
 
   const pay = () => {
+    if (phoneErr || momoOff) return;
     setSending(true);
     dispatch({ type: 'REQUEST_PAYMENT', farmerId: state.session.id, deviceId: device.id, planId, phone });
     setTimeout(() => {
@@ -58,6 +68,13 @@ export default function PayModal({ device, initialPlanId, onClose }) {
 
   return (
     <Modal title={`Pay for ${device.name} (${device.serial})`} onClose={onClose}>
+      {momoOff && (
+        <div className="warn-banner" style={{ marginBottom: 12 }}>
+          <Icon name="alert" size={18} />
+          <div>{momoDisabledNote(state.momo)}</div>
+        </div>
+      )}
+
       {pending && (
         <div className="warn-banner" style={{ marginBottom: 12 }}>
           <Icon name="clock" size={18} />
@@ -131,14 +148,23 @@ export default function PayModal({ device, initialPlanId, onClose }) {
       )}
 
       <Field label="MTN MoMo number">
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0788123456" />
+        <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="0788123456"
+          aria-invalid={phoneErr ? 'true' : undefined}
+        />
       </Field>
-      <p className="muted small" style={{ marginBottom: 12 }}>
-        You will receive an MTN MoMo prompt on {phone}. The payment is verified with the provider before the device unlocks —
-        the app never unlocks a system just because a button was pressed.
-      </p>
+      {phoneErr ? (
+        <div className="small" style={{ color: 'var(--crit)', marginBottom: 12 }}>{phoneErr}</div>
+      ) : (
+        <p className="muted small" style={{ marginBottom: 12 }}>
+          You will receive an MTN MoMo prompt on {phone}. The payment is verified with the provider before the device unlocks —
+          the app never unlocks a system just because a button was pressed.
+        </p>
+      )}
       <div className="btn-row">
-        <Btn variant="green" onClick={pay} disabled={sending || !payable}>
+        <Btn variant="green" onClick={pay} disabled={sending || !payable || !!phoneErr || momoOff}>
           {sending ? 'Sending…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="send" size={15} /> Request MoMo payment</span>}
         </Btn>
         <Btn onClick={onClose}>Cancel</Btn>
