@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { LANGS, t } from '../i18n/strings.js';
 import { Icon } from '../components/icons.jsx';
+import brandIcon from '../assets/afriinnox-icon.png';
 
 export default function Login() {
   const { state, dispatch } = useStore();
@@ -35,7 +36,9 @@ export default function Login() {
         color: '#fff', padding: 48, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', color: '#1c3a96', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 26 }}>A</div>
+          <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
+            <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          </div>
           <div>
             <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>AFRIINNOX</div>
             <div style={{ opacity: 0.85, textTransform: 'uppercase', fontSize: 12, letterSpacing: 2 }}>Broodiinnox Smart Brooding</div>

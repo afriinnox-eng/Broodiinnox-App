@@ -6,6 +6,7 @@ import { LANGS, t } from '../i18n/strings.js';
 import { fmtDateTime } from '../lib/time.js';
 import { Icon } from './icons.jsx';
 import { SevDot } from './ui.jsx';
+import brandIcon from '../assets/afriinnox-icon.png';
 
 const FARMER_NAV = [
   ['dashboard', 'grid'], ['systems', 'cpu'], ['batches', 'egg'], ['alerts', 'bell'],
@@ -117,7 +118,10 @@ export default function AppShell({ children }) {
     <div className={`app-shell ${role === 'admin' ? 'console' : 'farmer-app'}`}>
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">A</div>
+          {/* alt empty on purpose: the AFRIINNOX wordmark sits right beside it */}
+          <div className="brand-mark">
+            <img src={brandIcon} alt="" aria-hidden="true" />
+          </div>
           <div>
             <div className="brand-name">AFRIINNOX</div>
             <div className="brand-sub">{role === 'admin' ? 'Operations Console' : 'Broodiinnox'}</div>
