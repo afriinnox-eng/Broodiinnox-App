@@ -224,7 +224,7 @@ describe('rendered slot integrity: no silent missing icons in the live UI', () =
 
   it('admin app: dashboard with stat tiles, then the live network page', async () => {
     const { container } = renderApp();
-    fireEvent.click(screen.getByText(/Afriinnox Admin/));
+    // signed in through the admin demo button - there is no role tab to pick first
     fireEvent.click(screen.getByRole('button', { name: /demo admin/i }));
     await waitFor(() => expect(screen.getByText(/Revenue today/i)).toBeInTheDocument());
     assertIconSlots(container);

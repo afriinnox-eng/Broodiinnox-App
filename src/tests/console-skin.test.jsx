@@ -38,7 +38,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
 import { buildSeed } from '../lib/seed.js';
@@ -261,7 +261,12 @@ describe('invariant: no farmer-facing copy routes the user into the admin consol
   });
 });
 
-describe('login role accents (farmer blue vs admin black)', () => {
+/* The role tabs are gone: the identifier someone types - the email or phone number the
+ * Super Admin registered them with - is what decides which shell they land in. So the
+ * properties to hold are that every registered account reaches its own shell, that
+ * every shape of identifier works (email, bare phone, phone written with spaces,
+ * capitals), and that an identifier nobody registered opens nothing. */
+describe('login: the identifier decides which shell you land in', () => {
   /* cssstyle normalises inline colours; build expected values through jsdom
      itself so the assertions compare apples with apples */
   const norm = (prop, value) => {
@@ -270,44 +275,44 @@ describe('login role accents (farmer blue vs admin black)', () => {
     return probe.style[prop];
   };
 
-  function tabFor(label) {
-    return screen.getByText(label, { exact: true }).closest('.tab');
-  }
+  /** Type an identifier into the real form and submit it, as a user would. */
+  const signInAs = (identifier) => {
+    const { container } = renderApp('/', null); // no session -> login
+    fireEvent.change(container.querySelector('#login-id'), { target: { value: identifier } });
+    fireEvent.submit(container.querySelector('form'));
+    return container;
+  };
 
-  it('exactly one role carries its accent, on the active tab and the sign-in button', () => {
-    const expected = {
-      farmerActive: norm('borderBottomColor', '#1c3a96'),
-      adminActive: norm('borderBottomColor', '#0b0f1a'),
-      inactive: norm('borderBottomColor', 'transparent'),
-      farmerBtn: norm('background', 'var(--brand-blue)'),
-      adminBtn: norm('background', '#0b0f1a'),
-    };
+  it.each([
+    ['a registered farmer by email', 'jean@farm.rw', 'farmer-app'],
+    ['a registered farmer by phone', '0788123456', 'farmer-app'],
+    ['a farmer whose phone is typed with spaces', '0788 222 333', 'farmer-app'],
+    ['a registered admin by email', 'ops@afriinnox.com', 'console'],
+    ['an admin whose email is typed in capitals', 'OPS@AFRIINNOX.COM', 'console'],
+  ])('%s lands in the right shell', async (_case, identifier, shell) => {
+    const container = signInAs(identifier);
+    await waitFor(() => expect(container.querySelector('.app-shell')).not.toBeNull());
+    const classes = container.querySelector('.app-shell').className;
+    expect(classes, `${identifier} lands in ${shell}`).toContain(shell);
+    expect(classes).not.toContain(shell === 'console' ? 'farmer-app' : 'console');
+  });
 
-    renderApp('/', null); // no session -> login
-    let farmerTab = tabFor('Farmer');
-    let adminTab = tabFor('Afriinnox Admin');
+  it.each([
+    ['an email nobody registered', 'stranger@example.com'],
+    ['a phone number nobody registered', '0700000000'],
+    ['nothing at all', ''],
+  ])('%s signs nobody in', (_case, identifier) => {
+    const container = signInAs(identifier);
+    expect(container.querySelector('.app-shell'), 'no shell may open').toBeNull();
+    expect(screen.getByRole('alert').textContent.trim()).toBe(t('login.notRegistered', 'en'));
+  });
+
+  it('offers one accent on the sign-in button, and no role tab to colour', () => {
+    const { container } = renderApp('/', null);
     const signIn = screen.getByRole('button', { name: /sign in/i });
-
-    // default mode: farmer carries the blue accent, admin none
-    expect(farmerTab.style.borderBottomColor).toBe(expected.farmerActive);
-    expect(adminTab.style.borderBottomColor).toBe(expected.inactive);
-    expect(signIn.style.background).toBe(expected.farmerBtn);
-
-    // switch to admin: the accent moves entirely to the admin side
-    fireEvent.click(adminTab);
-    farmerTab = tabFor('Farmer');
-    adminTab = tabFor('Afriinnox Admin');
-    expect(adminTab.style.borderBottomColor).toBe(expected.adminActive);
-    expect(farmerTab.style.borderBottomColor).toBe(expected.inactive);
-    expect(signIn.style.background).toBe(expected.adminBtn);
-
-    // switch back: farmer regains it, admin loses it
-    fireEvent.click(farmerTab);
-    farmerTab = tabFor('Farmer');
-    adminTab = tabFor('Afriinnox Admin');
-    expect(farmerTab.style.borderBottomColor).toBe(expected.farmerActive);
-    expect(adminTab.style.borderBottomColor).toBe(expected.inactive);
-    expect(signIn.style.background).toBe(expected.farmerBtn);
+    expect(signIn.style.background).toBe(norm('background', 'var(--brand-blue)'));
+    expect(container.querySelectorAll('.tab').length, 'the role tabs are gone').toBe(0);
+    expect(screen.queryByText('Afriinnox Admin')).toBeNull();
   });
 
   it('the two accents are genuinely different from each other', () => {

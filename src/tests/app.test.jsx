@@ -99,7 +99,7 @@ describe('login & roles', () => {
 
   it('logs in as admin and shows network KPIs under the console skin', async () => {
     const { container } = renderApp();
-    fireEvent.click(screen.getByText(/Afriinnox Admin/));
+    // the identifier decides the shell: the admin demo signs straight into the console
     fireEvent.click(screen.getByRole('button', { name: /demo admin/i }));
     await waitFor(() => expect(screen.getByText(/Revenue today/i)).toBeInTheDocument());
     // admin signs into its own dark ops-console shell, distinct from the farmer app

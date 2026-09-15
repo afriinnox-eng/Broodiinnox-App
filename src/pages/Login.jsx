@@ -41,28 +41,46 @@ function PlateRail({ edge, marks }) {
 
 export default function Login() {
   const { state, dispatch } = useStore();
-  const [mode, setMode] = useState('farmer'); // farmer | admin
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const lang = state.lang || 'en';
-  const isFarmer = mode === 'farmer';
 
   const doLogin = (user) => {
+    setError('');
     dispatch({ type: 'LOGIN', user });
+  };
+
+  /* Who someone is comes from the registration, not from a choice on this screen. The
+     Super Admin registers every account, so the identifier they were given - an email
+     or a phone number - is what decides which shell they land in, a farmer's or the
+     console's. An identifier nobody registered signs nobody in. */
+  const lookup = (raw) => {
+    const typed = raw.trim();
+    if (!typed) return null;
+    const byEmail = typed.includes('@');
+    const phone = typed.replace(/[\s-]/g, '');
+    const farmer = state.farmers.find((f) => (byEmail
+      ? (f.email || '').toLowerCase() === typed.toLowerCase()
+      : f.phone === phone));
+    if (farmer) return { id: farmer.id, name: farmer.name, role: 'farmer', phone: farmer.phone, email: farmer.email };
+    const admin = state.admins.find((a) => (byEmail
+      ? a.email.toLowerCase() === typed.toLowerCase()
+      : (a.phone || '').replace(/[\s-]/g, '') === phone));
+    if (admin) return { id: admin.id, name: admin.name, role: 'admin', adminRole: admin.role, email: admin.email, phone: admin.phone };
+    return null;
   };
 
   const submit = (e) => {
     e.preventDefault();
-    if (isFarmer) {
-      const farmer = state.farmers.find((f) => f.phone === id.replace(/\s/g, ''));
-      if (farmer) return doLogin({ id: farmer.id, name: farmer.name, role: 'farmer', phone: farmer.phone });
-      if (id) return doLogin({ id: 'f-demo', name: id, role: 'farmer', phone: id });
-    } else {
-      const admin = state.admins.find((a) => a.email.toLowerCase() === id.toLowerCase());
-      if (admin) return doLogin({ id: admin.id, name: admin.name, role: 'admin', adminRole: admin.role, email: admin.email });
-      if (id) return doLogin({ id: 'a-demo', name: id, role: 'admin', adminRole: 'super', email: id });
-    }
+    const account = lookup(id);
+    if (!account) return setError(t('login.notRegistered', lang));
+    doLogin(account);
   };
+
+  /* the demo shortcuts sign in as the first registered account of each kind, through
+     the same lookup - there is no second way in */
+  const demo = (list) => (list[0] ? lookup(list[0].email || list[0].phone) : null);
 
   return (
     <div className="login-shell">
@@ -110,37 +128,30 @@ export default function Login() {
 
       <div className="login-form-pane">
         <div style={{ width: '100%', maxWidth: 400 }}>
-          <div className="tabs" style={{ borderBottom: 'none', justifyContent: 'center', marginBottom: 20 }}>
-            <div className={`tab ${isFarmer ? 'active' : ''}`} style={{
-              fontSize: 15, display: 'flex', alignItems: 'center', gap: 7,
-              color: isFarmer ? '#1c3a96' : 'var(--text-muted)',
-              borderBottom: isFarmer ? '2.5px solid #1c3a96' : '2.5px solid transparent',
-            }} onClick={() => setMode('farmer')}><Icon name="users" size={17} /> {t('login.farmer', lang)}</div>
-            <div className={`tab ${!isFarmer ? 'active' : ''}`} style={{
-              fontSize: 15, display: 'flex', alignItems: 'center', gap: 7,
-              color: !isFarmer ? '#0b0f1a' : 'var(--text-muted)',
-              borderBottom: !isFarmer ? '2.5px solid #0b0f1a' : '2.5px solid transparent',
-            }} onClick={() => setMode('admin')}><Icon name="shield" size={17} /> {t('login.admin', lang)}</div>
-          </div>
           <h2 style={{ textAlign: 'center' }}>{t('login.title', lang)}</h2>
           <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>{t('login.subtitle', lang)}</p>
 
           <form onSubmit={submit}>
             <div className="field">
-              <label>{isFarmer ? t('login.phone', lang) : t('login.email', lang)}</label>
-              <input value={id} onChange={(e) => setId(e.target.value)}
-                placeholder={isFarmer ? '0788123456' : 'admin@afriinnox.com'} required />
+              <label htmlFor="login-id">{t('login.identifier', lang)}</label>
+              <input id="login-id" value={id} autoComplete="username"
+                onChange={(e) => { setId(e.target.value); if (error) setError(''); }}
+                placeholder={t('login.identifierPh', lang)} required />
             </div>
             <div className="field">
-              <label>{t('login.password', lang)}</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
+              <label htmlFor="login-password">{t('login.password', lang)}</label>
+              <input id="login-password" type="password" value={password} autoComplete="current-password"
+                onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
             </div>
+            {error && (
+              <div className="warn-banner" role="alert" style={{ marginBottom: 12, alignItems: 'center' }}>
+                <Icon name="alert" size={16} /> {error}
+              </div>
+            )}
             <button className="btn" style={{
               width: '100%', justifyContent: 'center', padding: 11,
-              background: isFarmer ? 'var(--brand-blue)' : '#0b0f1a',
-              borderColor: isFarmer ? 'var(--brand-blue)' : '#0b0f1a',
-              color: '#fff',
-            }}>{t('login.signIn', lang)}</button>
+              background: 'var(--brand-blue)', borderColor: 'var(--brand-blue)', color: '#fff',
+            }}><Icon name="lock" size={16} /> {t('login.signIn', lang)}</button>
           </form>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
@@ -150,11 +161,13 @@ export default function Login() {
           </div>
 
           <div className="grid cols-2">
-            <button className="btn" style={{ justifyContent: 'center' }} onClick={() => doLogin(isFarmer ? { id: 'f1', name: 'Jean Damascene', role: 'farmer', phone: '0788123456' } : { id: 'a1', name: 'Innocent Ingabire', role: 'admin', adminRole: 'super', email: 'admin@afriinnox.com' })}>
-              <Icon name={isFarmer ? 'users' : 'shield'} size={16} /> {t(isFarmer ? 'login.demoFarmer' : 'login.demoAdmin', lang)}
+            <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.farmers)}
+              onClick={() => doLogin(demo(state.farmers))}>
+              <Icon name="users" size={16} /> {t('login.demoFarmer', lang)}
             </button>
-            <button className="btn" style={{ justifyContent: 'center' }} onClick={() => doLogin(isFarmer ? { id: 'f2', name: 'Clarisse Uwera', role: 'farmer', phone: '0788222333' } : { id: 'a2', name: 'Grace Uwase', role: 'admin', adminRole: 'operations', email: 'ops@afriinnox.com' })}>
-              <Icon name="user" size={16} /> {isFarmer ? 'Clarisse' : 'Ops Admin'}
+            <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.admins)}
+              onClick={() => doLogin(demo(state.admins))}>
+              <Icon name="shield" size={16} /> {t('login.demoAdmin', lang)}
             </button>
           </div>
           <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>{t('login.demoHint', lang)}</p>
