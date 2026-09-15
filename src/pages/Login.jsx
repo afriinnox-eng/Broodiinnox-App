@@ -4,6 +4,12 @@ import { LANGS, t } from '../i18n/strings.js';
 import { Icon } from '../components/icons.jsx';
 import brandIcon from '../assets/afriinnox-icon.png';
 
+/* The home screen's brand crest: the Afriinnox mark repeated along one hairline
+   rule. Each entry is how far that mark sits from the centre, so the row reads as
+   a line of the logo — largest and solid in the middle, smaller and fainter
+   outward — rather than the same tile copied seven times. */
+const BRAND_CREST = [3, 2, 1, 0, 1, 2, 3];
+
 export default function Login() {
   const { state, dispatch } = useStore();
   const [mode, setMode] = useState('farmer'); // farmer | admin
@@ -44,13 +50,27 @@ export default function Login() {
             <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
           </div>
         </div>
+        <div className="login-crest" aria-hidden="true">
+          <span className="login-crest-rule" />
+          {BRAND_CREST.map((step, i) => {
+            const size = 34 - step * 5;
+            return (
+              <span key={i} className="login-crest-mark" style={{
+                width: size, height: size, borderRadius: Math.round(size * 0.29),
+                opacity: 1 - step * 0.2, transform: `translateY(${step * 2}px)`,
+              }}>
+                <img src={brandIcon} alt="" />
+              </span>
+            );
+          })}
+        </div>
         <h1 style={{ fontSize: 30, maxWidth: 420 }}>{t('app.subtitle', lang)}</h1>
         <p style={{ opacity: 0.85, maxWidth: 460, lineHeight: 1.6 }}>
           Monitor temperature, manage batches, control your brooding systems remotely and keep your chicks,
           ducklings, poults and piglets safe — from anywhere with signal.
         </p>
         <div className="row" style={{ gap: 20, margin: '6px 0 4px' }}>
-          {[['cpu', 'Four sensors per system'], ['flame', 'Automatic failsafe heating'], ['wifi', 'Remote control & live alerts'], ['card', 'MTN MoMo subscriptions']].map(([ic, tx]) => (
+          {[['flame', 'Automatic failsafe heating'], ['wifi', 'Remote control & live alerts'], ['card', 'MTN MoMo subscriptions']].map(([ic, tx]) => (
             <div key={ic} className="row" style={{ gap: 8, fontSize: 12.5, lineHeight: 1.35, alignItems: 'flex-start', maxWidth: 130 }}>
               <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,255,255,0.14)', display: 'grid', placeItems: 'center', flex: 'none' }}>
                 <Icon name={ic} size={17} />
@@ -119,6 +139,14 @@ export default function Login() {
             </button>
           </div>
           <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>{t('login.demoHint', lang)}</p>
+
+          {/* The price sheet publishes these; the sign-in screen is exactly where a
+              locked-out or offline subscriber lands, so the real channels sit here. */}
+          <div className="login-contact">
+            <span className="login-contact-label">Need a hand getting in?</span>
+            <a href="mailto:info@afriinnox.com"><Icon name="mail" size={15} /> info@afriinnox.com</a>
+            <a href="tel:+250795814403"><Icon name="phone" size={15} /> +250 795 814 403</a>
+          </div>
         </div>
       </div>
     </div>
