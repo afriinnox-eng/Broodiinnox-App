@@ -23,7 +23,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
 import { buildSeed } from '../lib/seed.js';
@@ -87,6 +87,22 @@ describe('the icon is the brand mark on the home screen', () => {
 
     // the old behaviour: a bare "A" drawn as text inside the tile
     expect(tile.textContent.trim()).toBe('');
+  });
+
+  it('names Broodiinnox as the product and Afriinnox as the maker, beside the icon', () => {
+    const { container } = renderApp('/', null);
+
+    expect(screen.getByText('BROODIINNOX')).toBeInTheDocument();
+    expect(screen.getByText('by AFRIINNOX Ltd')).toBeInTheDocument();
+
+    // the wording this replaced is gone from the home screen
+    expect(screen.queryByText('AFRIINNOX')).toBeNull();
+    expect(screen.queryByText(/Broodiinnox Smart Brooding/)).toBeNull();
+
+    // and it is the block that sits with the icon, not somewhere else on the page
+    const head = container.querySelector('.login-brand').parentElement;
+    expect(head.textContent).toContain('BROODIINNOX');
+    expect(head.textContent).toContain('by AFRIINNOX Ltd');
   });
 
   it.each([

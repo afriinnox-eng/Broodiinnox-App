@@ -40,8 +40,8 @@ export default function Login() {
             <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
           </div>
           <div>
-            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>AFRIINNOX</div>
-            <div style={{ opacity: 0.85, textTransform: 'uppercase', fontSize: 12, letterSpacing: 2 }}>Broodiinnox Smart Brooding</div>
+            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>BROODIINNOX</div>
+            <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
           </div>
         </div>
         <h1 style={{ fontSize: 30, maxWidth: 420 }}>{t('app.subtitle', lang)}</h1>

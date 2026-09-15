@@ -79,9 +79,10 @@ describe('hash routing (production mode)', () => {
 });
 
 describe('login & roles', () => {
-  it('renders the AFRIINNOX brand and login', () => {
+  it('renders the BROODIINNOX brand and login', () => {
     renderApp();
-    expect(screen.getByText('AFRIINNOX')).toBeInTheDocument();
+    expect(screen.getByText('BROODIINNOX')).toBeInTheDocument();
+    expect(screen.getByText('by AFRIINNOX Ltd')).toBeInTheDocument();
     expect(screen.getByText(/Welcome back/i)).toBeInTheDocument();
   });
 
