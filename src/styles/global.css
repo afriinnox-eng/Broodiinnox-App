@@ -242,10 +242,11 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
 /* ===== home screen: the brand plate =====
    The mark used to be drawn as a single crest — one line of it above the words. It
-   is now closed into a square: a ribbon of the mark runs along all four edges of a
-   glass plate, and everything the home screen says sits inside it. The marks are
-   biggest and solid at the middle of each edge and fall away toward the corners, so
-   the frame is loudest where it is longest and quiet where the edges meet.
+   is now closed into a square that sits below the mark and the product name and
+   circles everything else the home screen says: the headline, the paragraph, the
+   promises and the languages. The marks are biggest and solid at the middle of each
+   edge and fall away toward the corners, so the frame is loudest where it is longest
+   and quiet where the edges meet.
 
    Geometry the frame must keep, asserted in src/tests/branding.test.jsx: for every
    edge, the rail's inset plus the largest mark on that edge is no more than the

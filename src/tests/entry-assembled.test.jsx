@@ -10,7 +10,7 @@
  *
  * The home screen (no session) must show the product wording beside the icon —
  * BROODIINNOX / by AFRIINNOX Ltd — none of the wording it replaced, and the plate
- * that frames it: four rails of the brand mark drawn around the words.
+ * that sits below them: four rails of the brand mark around everything after it.
  *
  * One boot per file on purpose: main.jsx creates its own React root and keeps
  * its effects alive, so a second boot in the same file would render against a
@@ -40,9 +40,14 @@ describe('the entry point a browser loads', () => {
     expect(plate).not.toBeNull();
     expect(plate.querySelectorAll('.login-plate-rail')).toHaveLength(4);
     expect(plate.querySelectorAll('.login-plate-mark img')).toHaveLength(28);
-    expect(plate.textContent).toContain('BROODIINNOX');
-    expect(plate.textContent).toContain('by AFRIINNOX Ltd');
-    expect(plate.querySelector('h1')).not.toBeNull();                 // the words are inside the frame
+    expect(plate.querySelector('.login-brand')).toBeNull();          // the mark sits above the frame
+    expect(plate.textContent).not.toContain('BROODIINNOX');          // and so does the product name
+    expect(plate.querySelector('h1')).not.toBeNull();                 // the headline is inside it
+
+    // and the plate really starts below them: the brand block comes first in the document
+    const brandRow = root.querySelector('.login-brand').parentElement;
+    expect(plate.contains(brandRow)).toBe(false);
+    expect(brandRow.compareDocumentPosition(plate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // and the ribbon stayed decoration: hidden from assistive tech, carrying no words
     plate.querySelectorAll('.login-plate-rail').forEach((rail) => {

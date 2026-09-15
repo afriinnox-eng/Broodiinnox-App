@@ -5,10 +5,11 @@ import { Icon } from '../components/icons.jsx';
 import brandIcon from '../assets/afriinnox-icon.png';
 
 /* The home screen's brand plate: the Afriinnox mark drawn as a ribbon along all
-   four edges of the panel that holds the words — the crest that used to be a single
-   line, now closed into a square around them. Each edge falls away from its own
-   middle — biggest and solid at the centre, smaller and fainter toward the corners
-   — so the frame is loudest where it is longest and quiet where the edges meet. */
+   four edges of the panel that sits below the mark and the product name — the crest
+   that used to be a single line, now closed into a square around the rest of what
+   the screen says. Each edge falls away from its own middle — biggest and solid at
+   the centre, smaller and fainter toward the corners — so the frame is loudest where
+   it is longest and quiet where the edges meet. */
 function edgeMarks(count, maxSize, minSize, maxOpacity, minOpacity) {
   const half = (count - 1) / 2;
   return Array.from({ length: count }, (_, i) => {
@@ -69,21 +70,22 @@ export default function Login() {
         background: 'linear-gradient(150deg, #1c3a96 0%, #12266a 60%, #3d5d30 130%)',
         color: '#fff', padding: 48, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18,
       }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
+            <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>BROODIINNOX</div>
+            <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
+          </div>
+        </div>
+        {/* the frame starts below the mark and the product name, and circles only
+            what follows it — not the icon, not BROODIINNOX */}
         <div className="login-plate">
           <PlateRail edge="top" marks={PLATE_HORIZONTAL} />
           <PlateRail edge="bottom" marks={PLATE_HORIZONTAL} />
           <PlateRail edge="side left" marks={PLATE_VERTICAL} />
           <PlateRail edge="side right" marks={PLATE_VERTICAL} />
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
-              <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>BROODIINNOX</div>
-              <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
-            </div>
-          </div>
           <h1 style={{ fontSize: 30, maxWidth: 420 }}>{t('app.subtitle', lang)}</h1>
           <p style={{ opacity: 0.85, maxWidth: 460, lineHeight: 1.6, margin: 0 }}>
             Monitor temperature, manage batches, control your brooding systems remotely and keep your chicks,

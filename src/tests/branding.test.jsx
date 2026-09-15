@@ -19,8 +19,9 @@
  *      AFRIINNOX wordmark beside it is untouched.
  *   4. HOME SCREEN HEADER — the mark closed into a plate: a ribbon of it runs along
  *      all four edges (largest and solid at the middle of each edge, smaller and
- *      fainter toward the corners) and the home screen's words sit inside it, with
- *      the Afriinnox contact channels the price sheet publishes.
+ *      fainter toward the corners). The plate sits below the icon and the product
+ *      name and circles everything else, with the Afriinnox contact channels the
+ *      price sheet publishes.
  *   5. THE BROWSER TAB — public/favicon.svg embeds the same supplied artwork, so
  *      the tab no longer carries the old network/activity glyph, with the 256px
  *      asset published beside it as the raster fallback and apple-touch-icon.
@@ -160,13 +161,22 @@ describe('the home screen header: the mark closed into a plate around the words'
     expect(Math.max(...top)).toBe(top[(top.length - 1) / 2]);
     expect(Math.min(...top)).toBe(top[0]);
 
-    // and the words are inside the frame, not beside it
-    expect(plate.querySelector('.login-brand')).not.toBeNull();
-    expect(plate.textContent).toContain('BROODIINNOX');
-    expect(plate.textContent).toContain('by AFRIINNOX Ltd');
+    // the frame circles only what follows the mark and the product name: that block
+    // stays above the plate, outside the frame
+    const brandRow = container.querySelector('.login-brand').parentElement;
+    expect(plate.contains(brandRow)).toBe(false);
+    expect(plate.querySelector('.login-brand')).toBeNull();
+    expect(plate.textContent).not.toContain('BROODIINNOX');
+    expect(plate.textContent).not.toContain('by AFRIINNOX Ltd');
+    // ...and the plate follows it in the document, so it reads as starting below it
+    expect(brandRow.compareDocumentPosition(plate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // everything else the screen says is inside the frame
     expect(plate.querySelector('h1')).not.toBeNull();
     expect(plate.querySelector('p')).not.toBeNull();
-    expect(plate.querySelector('.login-brand').contains(plate)).toBe(false);
+    ['Automatic failsafe heating', 'Remote control & live alerts', 'MTN MoMo subscriptions']
+      .forEach((tx) => expect(plate.textContent, tx).toContain(tx));
+    expect(plate.querySelectorAll('button').length).toBeGreaterThanOrEqual(3); // the language strip
   });
 
   it('leaves out how many sensors a system needs, and keeps the other promises', () => {
