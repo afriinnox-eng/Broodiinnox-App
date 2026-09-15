@@ -4,11 +4,39 @@ import { LANGS, t } from '../i18n/strings.js';
 import { Icon } from '../components/icons.jsx';
 import brandIcon from '../assets/afriinnox-icon.png';
 
-/* The home screen's brand crest: the Afriinnox mark repeated along one hairline
-   rule. Each entry is how far that mark sits from the centre, so the row reads as
-   a line of the logo — largest and solid in the middle, smaller and fainter
-   outward — rather than the same tile copied seven times. */
-const BRAND_CREST = [3, 2, 1, 0, 1, 2, 3];
+/* The home screen's brand plate: the Afriinnox mark drawn as a ribbon along all
+   four edges of the panel that holds the words — the crest that used to be a single
+   line, now closed into a square around them. Each edge falls away from its own
+   middle — biggest and solid at the centre, smaller and fainter toward the corners
+   — so the frame is loudest where it is longest and quiet where the edges meet. */
+function edgeMarks(count, maxSize, minSize, maxOpacity, minOpacity) {
+  const half = (count - 1) / 2;
+  return Array.from({ length: count }, (_, i) => {
+    const away = Math.abs(i - half) / half; // 0 at the middle of the edge, 1 at a corner
+    return {
+      size: Math.round(maxSize - (maxSize - minSize) * away),
+      opacity: Number((maxOpacity - (maxOpacity - minOpacity) * away).toFixed(2)),
+    };
+  });
+}
+
+const PLATE_HORIZONTAL = edgeMarks(9, 30, 17, 1, 0.42);
+const PLATE_VERTICAL = edgeMarks(5, 24, 16, 0.9, 0.4);
+
+/** One edge of the plate: the marks, in order, on a rail that never takes a click. */
+function PlateRail({ edge, marks }) {
+  return (
+    <span className={`login-plate-rail ${edge}`} aria-hidden="true">
+      {marks.map((m, i) => (
+        <span key={i} className="login-plate-mark" style={{
+          width: m.size, height: m.size, borderRadius: Math.round(m.size * 0.29), opacity: m.opacity,
+        }}>
+          <img src={brandIcon} alt="" />
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export default function Login() {
   const { state, dispatch } = useStore();
@@ -41,51 +69,44 @@ export default function Login() {
         background: 'linear-gradient(150deg, #1c3a96 0%, #12266a 60%, #3d5d30 130%)',
         color: '#fff', padding: 48, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
-            <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>BROODIINNOX</div>
-            <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
-          </div>
-        </div>
-        <div className="login-crest" aria-hidden="true">
-          <span className="login-crest-rule" />
-          {BRAND_CREST.map((step, i) => {
-            const size = 34 - step * 5;
-            return (
-              <span key={i} className="login-crest-mark" style={{
-                width: size, height: size, borderRadius: Math.round(size * 0.29),
-                opacity: 1 - step * 0.2, transform: `translateY(${step * 2}px)`,
-              }}>
-                <img src={brandIcon} alt="" />
-              </span>
-            );
-          })}
-        </div>
-        <h1 style={{ fontSize: 30, maxWidth: 420 }}>{t('app.subtitle', lang)}</h1>
-        <p style={{ opacity: 0.85, maxWidth: 460, lineHeight: 1.6 }}>
-          Monitor temperature, manage batches, control your brooding systems remotely and keep your chicks,
-          ducklings, poults and piglets safe — from anywhere with signal.
-        </p>
-        <div className="row" style={{ gap: 20, margin: '6px 0 4px' }}>
-          {[['flame', 'Automatic failsafe heating'], ['wifi', 'Remote control & live alerts'], ['card', 'MTN MoMo subscriptions']].map(([ic, tx]) => (
-            <div key={ic} className="row" style={{ gap: 8, fontSize: 12.5, lineHeight: 1.35, alignItems: 'flex-start', maxWidth: 130 }}>
-              <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,255,255,0.14)', display: 'grid', placeItems: 'center', flex: 'none' }}>
-                <Icon name={ic} size={17} />
-              </span>
-              <span style={{ opacity: 0.95 }}>{tx}</span>
+        <div className="login-plate">
+          <PlateRail edge="top" marks={PLATE_HORIZONTAL} />
+          <PlateRail edge="bottom" marks={PLATE_HORIZONTAL} />
+          <PlateRail edge="side left" marks={PLATE_VERTICAL} />
+          <PlateRail edge="side right" marks={PLATE_VERTICAL} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
+              <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
             </div>
-          ))}
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          {['en', 'fr', 'rw'].map((c) => (
-            <button key={c} className="btn" style={{ background: lang === c ? '#fff' : 'rgba(255,255,255,0.15)', color: lang === c ? '#1c3a96' : '#fff', borderColor: 'transparent' }}
-              onClick={() => dispatch({ type: 'SET_LANG', lang: c })}>
-              {LANGS.find((l) => l.code === c).label}
-            </button>
-          ))}
+            <div>
+              <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>BROODIINNOX</div>
+              <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
+            </div>
+          </div>
+          <h1 style={{ fontSize: 30, maxWidth: 420 }}>{t('app.subtitle', lang)}</h1>
+          <p style={{ opacity: 0.85, maxWidth: 460, lineHeight: 1.6, margin: 0 }}>
+            Monitor temperature, manage batches, control your brooding systems remotely and keep your chicks,
+            ducklings, poults and piglets safe — from anywhere with signal.
+          </p>
+          <div className="row" style={{ gap: 20, margin: '4px 0 2px' }}>
+            {[['flame', 'Automatic failsafe heating'], ['wifi', 'Remote control & live alerts'], ['card', 'MTN MoMo subscriptions']].map(([ic, tx]) => (
+              <div key={ic} className="row" style={{ gap: 8, fontSize: 12.5, lineHeight: 1.35, alignItems: 'flex-start', maxWidth: 130 }}>
+                <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,255,255,0.14)', display: 'grid', placeItems: 'center', flex: 'none' }}>
+                  <Icon name={ic} size={17} />
+                </span>
+                <span style={{ opacity: 0.95 }}>{tx}</span>
+              </div>
+            ))}
+          </div>
+          <div className="row" style={{ gap: 8, marginTop: 2 }}>
+            {['en', 'fr', 'rw'].map((c) => (
+              <button key={c} className="btn" style={{ background: lang === c ? '#fff' : 'rgba(255,255,255,0.15)', color: lang === c ? '#1c3a96' : '#fff', borderColor: 'transparent' }}
+                onClick={() => dispatch({ type: 'SET_LANG', lang: c })}>
+                {LANGS.find((l) => l.code === c).label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

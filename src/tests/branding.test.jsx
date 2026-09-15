@@ -17,9 +17,10 @@
  *   3. EVERY SHELL — on the farmer home and the admin home (and other routes)
  *      the sidebar tile renders the icon and carries no letter, while the
  *      AFRIINNOX wordmark beside it is untouched.
- *   4. HOME SCREEN HEADER — beside the icon and the wording, one line of the mark
- *      (a crest: largest and solid in the centre, smaller and fainter outward),
- *      and the Afriinnox contact channels the price sheet publishes.
+ *   4. HOME SCREEN HEADER — the mark closed into a plate: a ribbon of it runs along
+ *      all four edges (largest and solid at the middle of each edge, smaller and
+ *      fainter toward the corners) and the home screen's words sit inside it, with
+ *      the Afriinnox contact channels the price sheet publishes.
  *   5. THE BROWSER TAB — public/favicon.svg embeds the same supplied artwork, so
  *      the tab no longer carries the old network/activity glyph, with the 256px
  *      asset published beside it as the raster fallback and apple-touch-icon.
@@ -134,35 +135,38 @@ describe('the icon is the brand mark on the home screen', () => {
   });
 });
 
-describe('the home screen header: one line of the brand mark', () => {
-  it('draws the crest of marks beside the icon and the wording, fading outward', () => {
+describe('the home screen header: the mark closed into a plate around the words', () => {
+  it('frames the header with a ribbon of the mark along all four edges', () => {
     const { container } = renderApp('/', null);
-    const crest = container.querySelector('.login-crest');
-    expect(crest).not.toBeNull();
+    const plate = container.querySelector('.login-plate');
+    expect(plate).not.toBeNull();
 
-    const marks = [...crest.querySelectorAll('.login-crest-mark')];
-    expect(marks).toHaveLength(7);
-    for (const mark of marks) {
-      const img = mark.querySelector('img');
-      expect(img).not.toBeNull();
-      expect(img.getAttribute('src')).toMatch(/afriinnox-icon/); // the real mark, not a stand-in
-      expect(img.getAttribute('alt')).toBe('');                  // it repeats, so it is decoration, not content
+    for (const edge of ['top', 'bottom', 'left', 'right']) {
+      const rail = plate.querySelector(`.login-plate-rail.${edge}`);
+      expect(rail, `a rail runs along the ${edge} edge`).not.toBeNull();
+      const marks = [...rail.querySelectorAll('.login-plate-mark')];
+      expect(marks.length, `the ${edge} edge carries a line of marks`).toBeGreaterThanOrEqual(3);
+      for (const mark of marks) {
+        const img = mark.querySelector('img');
+        expect(img).not.toBeNull();
+        expect(img.getAttribute('src')).toMatch(/afriinnox-icon/); // the real mark, not a stand-in
+        expect(img.getAttribute('alt')).toBe('');                  // it repeats, so it is decoration
+      }
     }
 
-    const widths = marks.map((m) => parseFloat(m.style.width));
-    const opacities = marks.map((m) => Number(m.style.opacity));
-    expect(widths[3]).toBe(Math.max(...widths));  // biggest in the middle
-    expect(widths[0]).toBe(Math.min(...widths));  // smallest at the edges
-    expect(opacities[3]).toBe(1);
-    expect(opacities[0]).toBeLessThan(0.5);
-    expect(widths).toEqual([...widths].reverse());          // a crest, not a sequence
-    expect(opacities).toEqual([...opacities].reverse());
+    // the frame peaks at the middle of each edge and falls away to the corners
+    const top = [...plate.querySelectorAll('.login-plate-rail.top .login-plate-mark')]
+      .map((m) => parseFloat(m.style.width));
+    expect(Math.max(...top)).toBe(top[(top.length - 1) / 2]);
+    expect(Math.min(...top)).toBe(top[0]);
 
-    // it sits in the same header block as the icon and the product wording
-    const brandRow = container.querySelector('.login-brand').parentElement;
-    expect(crest.parentElement).toBe(brandRow.parentElement);
-    expect(brandRow.textContent).toContain('BROODIINNOX');
-    expect(container.querySelector('.login-brand').contains(crest)).toBe(false);
+    // and the words are inside the frame, not beside it
+    expect(plate.querySelector('.login-brand')).not.toBeNull();
+    expect(plate.textContent).toContain('BROODIINNOX');
+    expect(plate.textContent).toContain('by AFRIINNOX Ltd');
+    expect(plate.querySelector('h1')).not.toBeNull();
+    expect(plate.querySelector('p')).not.toBeNull();
+    expect(plate.querySelector('.login-brand').contains(plate)).toBe(false);
   });
 
   it('leaves out how many sensors a system needs, and keeps the other promises', () => {
@@ -227,11 +231,12 @@ describe('the browser tab carries the brand mark, not the old activity glyph', (
 /* INVARIANTS                                                          */
 /*                                                                     */
 /* The behavioural tests above assert one rendered outcome each. These  */
-/* assert what must hold for EVERY mark, EVERY index and EVERY element  */
-/* — a crest that is symmetric at any length, a tile whose raster is    */
-/* always inside it, every declared icon resolving, every rendered      */
-/* contact channel being one that works. A private brand mark has no    */
-/* "happy path": it is correct for all of them or it is wrong.         */
+/* assert what must hold for EVERY mark, EVERY edge and EVERY element   */
+/* — a frame symmetric at any mark count, a ribbon that can never land  */
+/* on a word, a tile whose raster is always inside it, every declared   */
+/* icon resolving, every rendered contact channel being one that works. */
+/* A private brand mark has no "happy path": it is correct for all of   */
+/* them or it is wrong.                                                 */
 /* ------------------------------------------------------------------ */
 
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -241,73 +246,140 @@ const SVG_DOC = () =>
     'image/svg+xml'
   );
 
-/** Every mark the crest drew, in document order, with the geometry the component
- *  derives from BRAND_CREST — so the assertions below can be made per index. */
-function crestMarks(container) {
-  const crest = container.querySelector('.login-crest');
-  if (!crest) return null;
-  return [...crest.querySelectorAll('.login-crest-mark')].map((el) => ({
-    width: parseFloat(el.style.width),
-    height: parseFloat(el.style.height),
-    radius: parseFloat(el.style.borderRadius),
-    opacity: Number(el.style.opacity),
-    lift: Number((el.style.transform.match(/translateY\((-?[\d.]+)px\)/) || [])[1]),
-    img: el.querySelector('img'),
+/** Every edge of the plate, with the marks the component drew on it and the geometry
+ *  it derived from edgeMarks() — so the assertions can be made per edge and per index. */
+function plateEdges(container) {
+  const plate = container.querySelector('.login-plate');
+  if (!plate) return null;
+  return Object.fromEntries(['top', 'bottom', 'left', 'right'].map((edge) => {
+    const rail = plate.querySelector(`.login-plate-rail.${edge}`);
+    return [edge, {
+      rail,
+      marks: rail ? [...rail.querySelectorAll('.login-plate-mark')].map((el) => ({
+        width: parseFloat(el.style.width),
+        height: parseFloat(el.style.height),
+        radius: parseFloat(el.style.borderRadius),
+        opacity: Number(el.style.opacity),
+        img: el.querySelector('img'),
+      })) : [],
+    }];
   }));
 }
 
-describe('INVARIANT: every mark the crest draws is a legible, decorative rounded square', () => {
-  it('holds at every index of the row, not only at the two ends', () => {
+describe('INVARIANT: every mark the plate draws is a legible, decorative rounded square', () => {
+  it('holds at every edge and every index, not only at the corners', () => {
     const { container } = renderApp('/', null);
-    const marks = crestMarks(container);
-    expect(marks).not.toBeNull();
-    expect(marks.length).toBeGreaterThanOrEqual(5); // a line of marks, not a single tile
-    expect(marks.length % 2).toBe(1);               // a crest is symmetric: it needs a centre
+    const edges = plateEdges(container);
+    expect(edges).not.toBeNull();
 
-    for (const [i, m] of marks.entries()) {
-      expect(m.height, `mark ${i} is square`).toBe(m.width);
-      expect(m.width, `mark ${i} is legible`).toBeGreaterThanOrEqual(16);
-      expect(m.width, `mark ${i} is a mark, not a hero image`).toBeLessThanOrEqual(40);
-      expect(m.radius, `mark ${i} is rounded`).toBeGreaterThanOrEqual(m.width * 0.2);
-      expect(m.radius, `mark ${i} is a rounded square, never a circle`).toBeLessThan(m.width * 0.5);
-      expect(m.opacity, `mark ${i} is visible`).toBeGreaterThan(0);
-      expect(m.opacity, `mark ${i} is not washed out`).toBeLessThanOrEqual(1);
-      expect(Number.isFinite(m.lift), `mark ${i} is placed on the rule`).toBe(true);
-      expect(m.img).not.toBeNull();
-      expect(m.img.getAttribute('src')).toMatch(/afriinnox-icon/); // the shipped artwork, per mark
-      expect(m.img.getAttribute('alt')).toBe('');                  // it repeats, so it is decoration
+    for (const [edge, { rail, marks }] of Object.entries(edges)) {
+      expect(rail, `the ${edge} edge has a rail`).not.toBeNull();
+      expect(marks.length, `the ${edge} edge carries a line of marks`).toBeGreaterThanOrEqual(3);
+      expect(marks.length % 2, `the ${edge} edge is symmetric: it needs a centre`).toBe(1);
+
+      for (const [i, m] of marks.entries()) {
+        expect(m.height, `${edge}[${i}] is square`).toBe(m.width);
+        expect(m.width, `${edge}[${i}] is legible`).toBeGreaterThanOrEqual(14);
+        expect(m.width, `${edge}[${i}] is a mark, not a hero image`).toBeLessThanOrEqual(34);
+        expect(m.radius, `${edge}[${i}] is rounded`).toBeGreaterThanOrEqual(m.width * 0.2);
+        expect(m.radius, `${edge}[${i}] is a rounded square, never a circle`).toBeLessThan(m.width * 0.5);
+        expect(m.opacity, `${edge}[${i}] is visible`).toBeGreaterThan(0);
+        expect(m.opacity, `${edge}[${i}] is not washed out`).toBeLessThanOrEqual(1);
+        expect(m.img).not.toBeNull();
+        expect(m.img.getAttribute('src')).toMatch(/afriinnox-icon/); // the shipped artwork, per mark
+        expect(m.img.getAttribute('alt')).toBe('');                  // it repeats, so it is decoration
+      }
     }
   });
 
-  it('is symmetric and fades monotonically outward at every index', () => {
+  it('peaks at the middle of every edge and falls away monotonically to both corners', () => {
     const { container } = renderApp('/', null);
-    const marks = crestMarks(container);
-    const centre = (marks.length - 1) / 2;
-    const last = marks.length - 1;
+    const edges = plateEdges(container);
 
-    for (let i = 0; i <= last; i += 1) {
-      expect(marks[i].width, `width mirrors at ${i}`).toBe(marks[last - i].width);
-      expect(marks[i].opacity, `opacity mirrors at ${i}`).toBe(marks[last - i].opacity);
-      expect(marks[i].lift, `placement mirrors at ${i}`).toBe(marks[last - i].lift);
-    }
-    // walking outward from the centre: never bigger, never brighter
-    for (let step = 1; step <= centre; step += 1) {
-      const inner = marks[centre - step + 1];
-      const outer = marks[centre - step];
-      expect(outer.width, `width step ${step}`).toBeLessThanOrEqual(inner.width);
-      expect(outer.opacity, `opacity step ${step}`).toBeLessThan(inner.opacity);
+    for (const [edge, { marks }] of Object.entries(edges)) {
+      const centre = (marks.length - 1) / 2;
+      const last = marks.length - 1;
+
+      for (let i = 0; i <= last; i += 1) {
+        expect(marks[i].width, `${edge} width mirrors at ${i}`).toBe(marks[last - i].width);
+        expect(marks[i].opacity, `${edge} opacity mirrors at ${i}`).toBe(marks[last - i].opacity);
+      }
+      // walking outward from the middle of the edge: never bigger, never brighter
+      for (let step = 1; step <= centre; step += 1) {
+        const inner = marks[centre - step + 1];
+        const outer = marks[centre - step];
+        expect(outer.width, `${edge} width step ${step}`).toBeLessThanOrEqual(inner.width);
+        expect(outer.opacity, `${edge} opacity step ${step}`).toBeLessThan(inner.opacity);
+      }
     }
   });
 
-  it('adds nothing to the header however many marks it draws', () => {
+  it('draws opposite edges as the same ribbon, so the square reads as one frame', () => {
     const { container } = renderApp('/', null);
-    const crest = container.querySelector('.login-crest');
-    expect(crest.getAttribute('aria-hidden')).toBe('true');
-    expect(crest.textContent).toBe(''); // no words in the crest, at any count
+    const edges = plateEdges(container);
 
-    // the header still announces exactly the product and the maker, and nothing else
+    for (const [a, b] of [['top', 'bottom'], ['left', 'right']]) {
+      expect(edges[a].marks.map((m) => m.width), `${a} and ${b}`).toEqual(edges[b].marks.map((m) => m.width));
+      expect(edges[a].marks.map((m) => m.opacity), `${a} and ${b}`).toEqual(edges[b].marks.map((m) => m.opacity));
+    }
+  });
+
+  it('keeps every rail inert and silent, however many marks it draws', () => {
+    const { container } = renderApp('/', null);
+    const edges = plateEdges(container);
+
+    for (const [edge, { rail }] of Object.entries(edges)) {
+      expect(rail.getAttribute('aria-hidden'), `the ${edge} rail is hidden`).toBe('true');
+      expect(rail.textContent, `the ${edge} rail carries no words`).toBe('');
+    }
+
+    // the words the frame surrounds are still exactly the product and the maker
     const brandRow = container.querySelector('.login-brand').parentElement;
     expect(brandRow.textContent).toBe('BROODIINNOXby AFRIINNOX Ltd');
+  });
+});
+
+describe('INVARIANT: the frame can never land on the words it surrounds', () => {
+  const css = () => fs.readFileSync(path.resolve(process.cwd(), 'src', 'styles', 'global.css'), 'utf8');
+
+  /** The declarations of one rule, by its exact selector. */
+  function rule(selector) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css());
+    return m ? m[1] : '';
+  }
+  const px = (body, prop) => {
+    const m = new RegExp(`(?:^|[;\\s])${prop}:\\s*(-?[\\d.]+)px`).exec(body);
+    return m ? Number(m[1]) : null;
+  };
+
+  it('sizes every rail so inset + largest mark stays inside the plate padding', () => {
+    const { container } = renderApp('/', null);
+    const edges = plateEdges(container);
+
+    const padding = /padding:\s*([\d.]+)px(?:\s+([\d.]+)px)?/.exec(rule('.login-plate'));
+    expect(padding, '.login-plate declares its padding').not.toBeNull();
+    const padY = Number(padding[1]);                      // the words start this far in
+    const padX = Number(padding[2] ?? padding[1]);
+    expect(padY, '.login-plate declares a real vertical padding').toBeGreaterThan(0);
+    expect(padX, '.login-plate declares a real horizontal padding').toBeGreaterThan(0);
+
+    const largest = (edge) => Math.max(...edges[edge].marks.map((m) => m.width));
+
+    // every number is read out of the stylesheet, so a declaration the parser misses
+    // must fail loudly rather than compare as zero and pass for nothing
+    for (const edge of ['top', 'bottom', 'left', 'right']) {
+      const gap = px(rule(`.login-plate-rail.${edge}`), edge);
+      expect(typeof gap, `.login-plate-rail.${edge} declares its ${edge} inset`).toBe('number');
+      const limit = edge === 'top' || edge === 'bottom' ? padY : padX;
+      // a rail that reached further than the padding would draw the ribbon over a word
+      expect(gap + largest(edge), `${edge} edge stays in the padding`).toBeLessThanOrEqual(limit);
+      expect(largest(edge), `the ${edge} edge really drew marks`).toBeGreaterThan(0);
+    }
+  });
+
+  it('declares the rails inert, so the ribbon can never swallow a click', () => {
+    expect(rule('.login-plate-rail')).toMatch(/pointer-events:\s*none/);
   });
 });
 
