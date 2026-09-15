@@ -203,17 +203,18 @@ export const ALERTS = [
 ];
 
 export const TICKETS = [
-  { id: 't1', farmerId: 'f3', subject: 'Sensor 3 showing abnormal temperature', category: 'Sensor problem', status: 'open', assignee: 'a3', createdAt: iso(-1, 13), messages: [{ author: 'Eric Niyonsaba', at: iso(-1, 13), text: 'Sensor 3 seems to have stopped reading. It shows nothing on screen 7.' }] },
-  { id: 't2', farmerId: 'f1', subject: 'Question about renewing BRD002', category: 'Subscription problem', status: 'in-progress', assignee: 'a4', createdAt: iso(-2, 10), messages: [{ author: 'Jean Damascene', at: iso(-2, 10), text: 'My subscription expires in 2 days — what happens if I renew late?' }] },
+  { id: 't1', farmerId: 'f3', subject: 'Sensor 3 showing abnormal temperature', category: 'Sensor problem', status: 'open', assignee: 'a1', createdAt: iso(-1, 13), messages: [{ author: 'Eric Niyonsaba', at: iso(-1, 13), text: 'Sensor 3 seems to have stopped reading. It shows nothing on screen 7.' }] },
+  { id: 't2', farmerId: 'f1', subject: 'Question about renewing BRD002', category: 'Subscription problem', status: 'in-progress', assignee: 'a1', createdAt: iso(-2, 10), messages: [{ author: 'Jean Damascene', at: iso(-2, 10), text: 'My subscription expires in 2 days — what happens if I renew late?' }] },
   { id: 't3', farmerId: 'f5', subject: 'Device BRD006 locked after expiry', category: 'Subscription problem', status: 'new', assignee: null, createdAt: iso(-1, 16), messages: [{ author: 'Patrick Habimana', at: iso(-1, 16), text: 'Please help me reactivate my system.' }] },
 ];
 
+/* The one Afriinnox account. The four console accounts that used to sit here -
+   ops@, tech@, finance@ and support@ - were demo staff, and every one of them
+   signed in without a password ever being checked. That is not something to
+   leave in an app real farmers use, so the console has one account now: the
+   Super Admin, who registers everyone else from inside it. */
 export const ADMINS = [
-  { id: 'a1', name: 'Innocent Ingabire', email: 'admin@afriinnox.com', role: 'super', status: 'active', createdAt: iso(-300) },
-  { id: 'a2', name: 'Grace Uwase', email: 'ops@afriinnox.com', role: 'operations', status: 'active', createdAt: iso(-200) },
-  { id: 'a3', name: 'Kevin Mugisha', email: 'tech@afriinnox.com', role: 'technical', status: 'active', createdAt: iso(-180) },
-  { id: 'a4', name: 'Sandrine Niyonkuru', email: 'finance@afriinnox.com', role: 'finance', status: 'active', createdAt: iso(-150) },
-  { id: 'a5', name: 'Olivier Byiringiro', email: 'support@afriinnox.com', role: 'support', status: 'active', createdAt: iso(-120) },
+  { id: 'a1', name: 'Afriinnox', email: 'afriinnox@gmail.com', role: 'super', status: 'active', createdAt: iso(-300) },
 ];
 
 export const MAINTENANCE = [

@@ -287,8 +287,8 @@ describe('login: the identifier decides which shell you land in', () => {
     ['a registered farmer by email', 'jean@farm.rw', 'farmer-app'],
     ['a registered farmer by phone', '0788123456', 'farmer-app'],
     ['a farmer whose phone is typed with spaces', '0788 222 333', 'farmer-app'],
-    ['a registered admin by email', 'ops@afriinnox.com', 'console'],
-    ['an admin whose email is typed in capitals', 'OPS@AFRIINNOX.COM', 'console'],
+    ['the Super Admin by email', 'afriinnox@gmail.com', 'console'],
+    ['the Super Admin whose email is typed in capitals', 'AFRIINNOX@GMAIL.COM', 'console'],
   ])('%s lands in the right shell', async (_case, identifier, shell) => {
     const container = signInAs(identifier);
     await waitFor(() => expect(container.querySelector('.app-shell')).not.toBeNull());

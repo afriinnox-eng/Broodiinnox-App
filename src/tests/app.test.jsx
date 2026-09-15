@@ -86,9 +86,12 @@ describe('login & roles', () => {
     expect(screen.getByText(/Welcome back/i)).toBeInTheDocument();
   });
 
-  it('logs in as demo farmer and shows the dashboard with system cards', async () => {
+  it('logs in as a registered farmer and shows the dashboard with system cards', async () => {
     const { container } = renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /demo farmer/i }));
+    // the way in is the form itself: there is no demo shortcut to press
+    fireEvent.change(container.querySelector('#login-id'), { target: { value: '0788123456' } });
+    fireEvent.change(container.querySelector('#login-password'), { target: { value: 'a-password' } });
+    fireEvent.submit(container.querySelector('form'));
     await waitFor(() => expect(screen.getByText(/Dashboard, Jean/i)).toBeInTheDocument());
     // the farmer app keeps the light blue shell, not the admin console skin
     expect(container.querySelector('.app-shell').className).toContain('farmer-app');
@@ -97,10 +100,12 @@ describe('login & roles', () => {
     expect(screen.getByText(/Kigali Farm 2/i)).toBeInTheDocument();
   });
 
-  it('logs in as admin and shows network KPIs under the console skin', async () => {
+  it('logs in as the Super Admin and shows network KPIs under the console skin', async () => {
     const { container } = renderApp();
-    // the identifier decides the shell: the admin demo signs straight into the console
-    fireEvent.click(screen.getByRole('button', { name: /demo admin/i }));
+    // the identifier decides the shell: the one console account lands in the console
+    fireEvent.change(container.querySelector('#login-id'), { target: { value: 'afriinnox@gmail.com' } });
+    fireEvent.change(container.querySelector('#login-password'), { target: { value: 'a-password' } });
+    fireEvent.submit(container.querySelector('form'));
     await waitFor(() => expect(screen.getByText(/Revenue today/i)).toBeInTheDocument());
     // admin signs into its own dark ops-console shell, distinct from the farmer app
     expect(container.querySelector('.app-shell').className).toContain('console');

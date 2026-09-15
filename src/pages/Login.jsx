@@ -212,10 +212,6 @@ export default function Login() {
     setError(t('login.forgotUnavailable', lang));
   };
 
-  /* the demo shortcuts sign in as the first registered account of each kind, through
-     the same lookup - there is no second way in */
-  const demo = (list) => (list[0] ? lookup(list[0].email || list[0].phone) : null);
-
   return (
     <div className="login-shell">
       <div className="login-brand-pane">
@@ -363,24 +359,6 @@ export default function Login() {
                   background: 'var(--brand-blue)', borderColor: 'var(--brand-blue)', color: '#fff',
                 }}><Icon name="lock" size={16} /> {t('login.signIn', lang)}</button>
               </form>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                <span className="muted small">{t('login.or', lang)}</span>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              </div>
-
-              <div className="grid cols-2">
-                <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.farmers)}
-                  onClick={() => doLogin(demo(state.farmers))}>
-                  <Icon name="users" size={16} /> {t('login.demoFarmer', lang)}
-                </button>
-                <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.admins)}
-                  onClick={() => doLogin(demo(state.admins))}>
-                  <Icon name="shield" size={16} /> {t('login.demoAdmin', lang)}
-                </button>
-              </div>
-              <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>{t('login.demoHint', lang)}</p>
             </>
           )}
 

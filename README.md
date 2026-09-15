@@ -19,12 +19,18 @@ black, white) and the Afriinnox–Hanga 2026 business documentation.
 | Support | Help & support tickets | Ticket queue, bulk messaging, admin roles |
 | Extras | Brooding tips, onboarding checklist, language toggle | Maintenance, spare-parts inventory, churn risk, CSV export |
 
-## Demo accounts (mock backend)
+## Signing in
 
-- **Farmer** — phone `0788123456`, any password (quick button on the login page)
-- **Admin** — email `admin@afriinnox.com`, any password (quick button on the login page)
+- **Super Admin** — the Afriinnox account, `afriinnox@gmail.com`. It is the only
+  console account: the Super Admin registers every farmer from inside the console.
+- **Farmers** — sign in with the email address or the phone number they were
+  registered with.
 
-The app ships with seeded demo data: 6 farmers, 8 Broodiinnox systems, active/expired
+There are no demo shortcuts on the login page, and no password is published here:
+what is seeded below is the platform's registered farmers and their systems, not a
+set of test logins.
+
+The app ships with seeded records: 6 farmers, 8 Broodiinnox systems, active/expired
 subscriptions, payments, alerts, tickets, maintenance records and inventory.
 
 > **Mock IoT backend.** There is no physical device or server in this build. A service

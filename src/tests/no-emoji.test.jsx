@@ -211,7 +211,9 @@ describe('rendered slot integrity: no silent missing icons in the live UI', () =
     expect(container.querySelectorAll('svg').length).toBeGreaterThanOrEqual(4);
     assertIconSlots(container);
 
-    fireEvent.click(screen.getByRole('button', { name: /demo farmer/i }));
+    fireEvent.change(container.querySelector('#login-id'), { target: { value: '0788123456' } });
+    fireEvent.change(container.querySelector('#login-password'), { target: { value: 'a-password' } });
+    fireEvent.submit(container.querySelector('form'));
     await screen.findByText(/Dashboard, Jean/i);
     assertIconSlots(container);
 
@@ -224,8 +226,10 @@ describe('rendered slot integrity: no silent missing icons in the live UI', () =
 
   it('admin app: dashboard with stat tiles, then the live network page', async () => {
     const { container } = renderApp();
-    // signed in through the admin demo button - there is no role tab to pick first
-    fireEvent.click(screen.getByRole('button', { name: /demo admin/i }));
+    // signed in through the form, as the one console account
+    fireEvent.change(container.querySelector('#login-id'), { target: { value: 'afriinnox@gmail.com' } });
+    fireEvent.change(container.querySelector('#login-password'), { target: { value: 'a-password' } });
+    fireEvent.submit(container.querySelector('form'));
     await waitFor(() => expect(screen.getByText(/Revenue today/i)).toBeInTheDocument());
     assertIconSlots(container);
 

@@ -198,12 +198,15 @@ describe('nothing may stop a registered person getting in', () => {
     expect(authCalls()).toEqual([]);
   });
 
-  it('the demo buttons still work, and still go through the registration', async () => {
+  it('offers no demo shortcut at all: the form is the only way in', () => {
     const root = boot();
-    const demo = [...root.querySelectorAll('button')].find((b) => /demo farmer/i.test(b.textContent));
-    fireEvent.click(demo);
-    await opensTheShell(root);
-    expect(authCalls()).toEqual([]);
+    // no button that signs anyone in without the form, and no copy that suggests
+    // a shared or throwaway password - the words are checked on the whole screen
+    expect([...root.querySelectorAll('button')].map((b) => b.textContent.trim()).filter((l) => /demo/i.test(l))).toEqual([]);
+    expect(root.textContent).not.toMatch(/demo/i);
+    expect(root.textContent).not.toMatch(/any password/i);
+    expect(root.querySelector('#login-id'), 'the form is what is left').not.toBeNull();
+    expect(root.querySelector('.app-shell')).toBeNull();
   });
 });
 

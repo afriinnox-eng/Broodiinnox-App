@@ -78,9 +78,11 @@ describe('the entry point a browser loads', () => {
 
     // then the next thing a user does: sign in. The sidebar only exists once they
     // have, so this is the only level that can prove what it says.
-    const demo = [...root.querySelectorAll('button')].find((b) => /demo farmer/i.test(b.textContent));
-    expect(demo, 'the sign-in screen offers the demo farmer').toBeDefined();
-    fireEvent.click(demo);
+    // there is no demo shortcut left to press: the way in is the form, with the
+    // identifier this account was registered with
+    fireEvent.change(root.querySelector('#login-id'), { target: { value: '0788123456' } });
+    fireEvent.change(root.querySelector('#login-password'), { target: { value: 'a-password' } });
+    fireEvent.submit(root.querySelector('form'));
 
     await vi.waitFor(() => expect(root.querySelector('.sidebar .brand-name')).not.toBeNull());
     expect(root.querySelector('.sidebar .brand-name').textContent.trim()).toBe('BROODIINNOX');
