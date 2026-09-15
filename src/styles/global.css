@@ -329,6 +329,34 @@ color: #fff; padding: 48px; display: flex; flex-direction: column; justify-conte
 }
 .login-form-pane { display: grid; place-items: center; padding: 32px; }
 
+/* The mark, the product name and - on a phone - the shortcut to the sign-in form,
+   which on a stacked screen is otherwise below everything else. */
+.login-brand-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+/* Hidden wherever the form is already beside the brand, which is the two-column
+   layout; the phone breakpoint at the end of this file is what shows it. It never
+   submits anything itself - it is a way there, not a second way in. */
+.login-quick {
+  display: none;
+  margin-left: auto;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.login-quick:hover { background: rgba(255, 255, 255, 0.26); }
+.login-quick:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.login-quick svg { flex: none; }
+
 /* ===== home screen: the brand plate =====
    The mark used to be drawn as a single crest — one line of it above the words. It
    is now closed into a square that sits below the mark and the product name and
@@ -547,6 +575,9 @@ tr:hover td { background: var(--surface-2); }
   .login-brand-pane { padding: 26px 20px 22px; justify-content: flex-start; }
   .login-form-pane { padding: 22px 20px 40px; }
   .login-plate { max-width: 520px; margin: 0 auto; }
+  /* From here down the screen is one column, so the sign-in form is below the
+     fold and the shortcut beside the mark is how a farmer finds it at a glance. */
+  .login-quick { display: inline-flex; }
 }
 
 @media (max-width: 620px) {

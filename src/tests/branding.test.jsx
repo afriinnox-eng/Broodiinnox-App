@@ -346,7 +346,12 @@ describe('INVARIANT: every mark the plate draws is a legible, decorative rounded
 
     // the words the frame surrounds are still exactly the product and the maker
     const brandRow = container.querySelector('.login-brand').parentElement;
-    expect(brandRow.textContent).toBe('BROODIINNOXby AFRIINNOX Ltd');
+    // the row also carries the phone shortcut to the form, which is a button - so
+    // the words are asserted on what is left once the buttons are taken out
+    const words = [...brandRow.childNodes]
+      .filter((node) => node.nodeName !== 'BUTTON')
+      .map((node) => node.textContent).join('');
+    expect(words).toBe('BROODIINNOXby AFRIINNOX Ltd');
   });
 });
 

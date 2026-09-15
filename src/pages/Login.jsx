@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { LANGS, t } from '../i18n/strings.js';
 import { Icon } from '../components/icons.jsx';
@@ -62,6 +62,23 @@ export default function Login() {
      behaves exactly as it did before the code step existed, which is what keeps
      a build with no VITE_IOT_API_URL able to sign anyone in. */
   const api = useMemo(() => authApiFor(import.meta.env), []);
+
+  /* The phone layout stacks this screen, which puts the sign-in form below the
+     mark, the plate and the promises - so the one thing a returning farmer came
+     here to press is the one thing that is not on the first screen. This ref is
+     the shortcut to it: scroll the form pane into view and leave the cursor in
+     its first field, whatever step of the flow it is showing. `scrollIntoView`
+     is not implemented in every environment, so it is called only when it
+     exists - the focus alone still lands the person in the right place. */
+  const formPane = useRef(null);
+
+  const goToSignIn = () => {
+    const pane = formPane.current;
+    if (!pane) return;
+    if (typeof pane.scrollIntoView === 'function') pane.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const field = pane.querySelector('input');
+    if (field && typeof field.focus === 'function') field.focus({ preventScroll: true });
+  };
 
   const doLogin = (user) => {
     setError('');
@@ -202,7 +219,7 @@ export default function Login() {
   return (
     <div className="login-shell">
       <div className="login-brand-pane">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div className="login-brand-row">
           <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
             <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
           </div>
@@ -210,6 +227,13 @@ export default function Login() {
             <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 0.5 }}>BROODIINNOX</div>
             <div style={{ opacity: 0.85, fontSize: 12, letterSpacing: 1 }}>by AFRIINNOX Ltd</div>
           </div>
+          {/* On a phone this is the only way in that is visible at a glance, so it
+              sits in the top right corner of the screen, beside the mark. It is
+              hidden where the form is already beside the brand, and it never
+              submits anything itself: it only takes the person to the form. */}
+          <button type="button" className="login-quick" aria-label={t('login.quickSignIn', lang)} onClick={goToSignIn}>
+            <Icon name="lock" size={15} /> {t('login.signIn', lang)}
+          </button>
         </div>
         {/* the frame starts below the mark and the product name, and circles only
             what follows it — not the icon, not BROODIINNOX */}
@@ -243,7 +267,7 @@ export default function Login() {
         </div>
       </div>
 
-      <div className="login-form-pane">
+      <div className="login-form-pane" ref={formPane}>
         <div style={{ width: '100%', maxWidth: 400 }}>
           {mode === 'forgot' ? (
             <>

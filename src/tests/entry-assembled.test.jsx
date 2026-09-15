@@ -67,6 +67,15 @@ describe('the entry point a browser loads', () => {
       expect(rail.textContent).toBe('');
     });
 
+    // the phone shortcut to the form is on the screen index.html loads, it is not
+    // part of the form it points at, and it really puts the cursor where a person
+    // signs in - the form itself is below the fold on a stacked screen
+    const quick = root.querySelector('.login-quick');
+    expect(quick, 'the shortcut to the sign-in form mounted').not.toBeNull();
+    expect(quick.closest('form'), 'it is not a second submit button').toBeNull();
+    fireEvent.click(quick);
+    expect(document.activeElement?.id, 'and it lands in the identifier field').toBe('login-id');
+
     // then the next thing a user does: sign in. The sidebar only exists once they
     // have, so this is the only level that can prove what it says.
     const demo = [...root.querySelectorAll('button')].find((b) => /demo farmer/i.test(b.textContent));

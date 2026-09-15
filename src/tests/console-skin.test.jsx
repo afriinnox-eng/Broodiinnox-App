@@ -38,7 +38,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
 import { buildSeed } from '../lib/seed.js';
@@ -309,7 +309,9 @@ describe('login: the identifier decides which shell you land in', () => {
 
   it('offers one accent on the sign-in button, and no role tab to colour', () => {
     const { container } = renderApp('/', null);
-    const signIn = screen.getByRole('button', { name: /sign in/i });
+    // scoped to the form: the home screen also carries the phone shortcut to this
+    // form, which is a different control with a different job
+    const signIn = within(container.querySelector('form')).getByRole('button', { name: /sign in/i });
     expect(signIn.style.background).toBe(norm('background', 'var(--brand-blue)'));
     expect(container.querySelectorAll('.tab').length, 'the role tabs are gone').toBe(0);
     expect(screen.queryByText('Afriinnox Admin')).toBeNull();
