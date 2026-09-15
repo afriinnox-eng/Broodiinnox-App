@@ -350,12 +350,80 @@ describe('INVARIANT: every mark the plate draws is a legible, decorative rounded
   });
 });
 
+describe('the home screen on a phone', () => {
+  const css = () => fs.readFileSync(path.resolve(process.cwd(), 'src', 'styles', 'global.css'), 'utf8');
+  /** The declarations of one rule, by its exact selector — media overrides stripped. */
+  function rule(selector) {
+    const base = css().replace(/@media[^{]*\{[\s\S]*?\n\}/g, '');
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(base);
+    return m ? m[1] : '';
+  }
+  /** Every max-width media block, with the width it fires at. */
+  function breakpoints() {
+    return [...css().matchAll(/@media\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?)\n\}/g)]
+      .map((m) => ({ width: Number(m[1]), body: m[2] }));
+  }
+
+  it('keeps the layout in the stylesheet, where a phone can override it', () => {
+    const { container } = renderApp('/', null);
+    const shell = container.querySelector('.login-shell');
+
+    expect(shell, 'the shell carries the layout class').not.toBeNull();
+    expect(container.querySelector('.login-brand-pane')).not.toBeNull();
+    expect(container.querySelector('.login-form-pane')).not.toBeNull();
+
+    // the regression: an inline grid cannot be reflowed by a media query, which is
+    // exactly what left the sign-in form off the side of a phone screen
+    expect(shell.getAttribute('style') || '').not.toMatch(/grid/i);
+    expect(shell.style.gridTemplateColumns).toBe('');
+    expect(rule('.login-shell'), 'and the layout is styled from the stylesheet').not.toBe('');
+    expect(rule('.login-brand-pane'), 'as is the brand pane').not.toBe('');
+    expect(rule('.login-form-pane'), 'and the form pane').not.toBe('');
+  });
+
+  it('stacks to one column below the phone breakpoint', () => {
+    expect(rule('.login-shell'), 'the desktop default is two columns').toMatch(/grid-template-columns:\s*1fr\s+1fr/);
+
+    const shell = breakpoints().find((b) => /\.login-shell\s*\{/.test(b.body));
+    expect(shell, 'a breakpoint reflows the shell').toBeDefined();
+    expect(shell.body, 'and makes it one column').toMatch(/\.login-shell\s*\{[^}]*grid-template-columns:\s*1fr/);
+    expect(shell.body, 'with phone padding on the brand pane').toMatch(/\.login-brand-pane\s*\{[^}]*padding:/);
+    expect(shell.body, 'and on the form pane').toMatch(/\.login-form-pane\s*\{[^}]*padding:/);
+  });
+
+  it('stacks the tiles on a narrow phone, so no label is squeezed', () => {
+    const tiles = breakpoints().find((b) => /\.login-promises\s*\{[^}]*grid-template-columns:\s*1fr/.test(b.body));
+    expect(tiles, 'a breakpoint stacks the promise tiles').toBeDefined();
+    expect(tiles.width, 'and it is a phone-width breakpoint').toBeLessThanOrEqual(700);
+  });
+
+  it('never shrinks the frame padding at any breakpoint', () => {
+    // the ribbon sits in that padding: shrink it and the marks land on the words
+    const blocks = breakpoints();
+    expect(blocks.length).toBeGreaterThanOrEqual(2);
+    for (const b of blocks) {
+      expect(b.body, `the ${b.width}px breakpoint must leave the frame padding alone`)
+        .not.toMatch(/\.login-plate\s*\{[^}]*padding:/);
+    }
+  });
+
+  it('lets the phone report its own width, or no breakpoint can fire', () => {
+    const html = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
+    expect(html).toMatch(/<meta name="viewport" content="width=device-width, initial-scale=1\.0" \/>/);
+  });
+});
+
 describe('the composition inside the frame sits on one three-column rhythm', () => {
   /** The declarations of one rule, by its exact selector. */
   function rule(selector) {
-    const css = fs.readFileSync(path.resolve(process.cwd(), 'src', 'styles', 'global.css'), 'utf8');
+    // media blocks can carry an override of the same selector, so strip them first:
+    // reading an override as the rule would let a phone-only change masquerade as the
+    // base declaration, which is exactly how a breakpoint can look like it applies
+    const base = fs.readFileSync(path.resolve(process.cwd(), 'src', 'styles', 'global.css'), 'utf8')
+      .replace(/@media[^{]*\{[\s\S]*?\n\}/g, '');
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css);
+    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(base);
     return m ? m[1] : '';
   }
 
@@ -449,10 +517,11 @@ describe('the composition inside the frame sits on one three-column rhythm', () 
 describe('INVARIANT: the frame can never land on the words it surrounds', () => {
   const css = () => fs.readFileSync(path.resolve(process.cwd(), 'src', 'styles', 'global.css'), 'utf8');
 
-  /** The declarations of one rule, by its exact selector. */
+  /** The declarations of one rule, by its exact selector — media overrides stripped. */
   function rule(selector) {
+    const base = css().replace(/@media[^{]*\{[\s\S]*?\n\}/g, '');
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css());
+    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(base);
     return m ? m[1] : '';
   }
   const px = (body, prop) => {

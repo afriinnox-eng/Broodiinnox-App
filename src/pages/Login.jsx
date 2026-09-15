@@ -65,11 +65,8 @@ export default function Login() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '1fr 1fr', background: 'var(--bg)' }}>
-      <div style={{
-        background: 'linear-gradient(150deg, #1c3a96 0%, #12266a 60%, #3d5d30 130%)',
-        color: '#fff', padding: 48, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18,
-      }}>
+    <div className="login-shell">
+      <div className="login-brand-pane">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div className="login-brand" style={{ width: 54, height: 54, borderRadius: 14, background: '#fff', display: 'grid', placeItems: 'center', padding: 5, flex: 'none' }}>
             <img src={brandIcon} alt="Afriinnox" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
@@ -111,7 +108,7 @@ export default function Login() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', placeItems: 'center', padding: 32 }}>
+      <div className="login-form-pane">
         <div style={{ width: '100%', maxWidth: 400 }}>
           <div className="tabs" style={{ borderBottom: 'none', justifyContent: 'center', marginBottom: 20 }}>
             <div className={`tab ${isFarmer ? 'active' : ''}`} style={{
