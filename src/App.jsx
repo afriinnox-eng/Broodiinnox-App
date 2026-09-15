@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useStore } from './lib/store.jsx';
 import AppShell from './components/layout.jsx';
 import Login from './pages/Login.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
+import { RESET_ROUTE } from './lib/auth.js';
 
 import FarmerDashboard from './pages/farmer/Dashboard.jsx';
 import FarmerSystems from './pages/farmer/Systems.jsx';
@@ -36,10 +38,17 @@ import AdminSettings from './pages/admin/Settings.jsx';
 
 export default function App() {
   const { state } = useStore();
+  const location = useLocation();
   const theme = state.theme || 'light';
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  /* The password-reset link is opened by someone who is locked out, so this
+     screen must render before the session gate below - and it has to keep
+     working when a signed-in person clicks the newest link. The token travels
+     in the URL fragment, so no session is involved either way. */
+  if (location.pathname === RESET_ROUTE) return <ResetPassword />;
 
   if (!state.session) return <Login />;
   const role = state.session.role;

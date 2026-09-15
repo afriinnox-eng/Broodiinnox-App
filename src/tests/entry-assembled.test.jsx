@@ -78,5 +78,24 @@ describe('the entry point a browser loads', () => {
     expect(root.querySelector('.sidebar .brand-sub').textContent.trim()).toBe('by AFRIINNOX Ltd');
     // and the role is still named in the sidebar, on the section label
     expect(root.querySelector('.sidebar .nav-section').textContent.trim()).toBe('Farmer App');
+
+    // sign out, then meet the other half of this screen on the real entry point: the
+    // identifier decides who gets in, so one nobody registered must not.
+    const logout = [...root.querySelectorAll('.sidebar .nav-item')].find((el) => /log\s?out/i.test(el.textContent));
+    expect(logout, 'the sidebar offers a way out').toBeDefined();
+    fireEvent.click(logout);
+    await vi.waitFor(() => expect(root.querySelector('#login-id')).not.toBeNull());
+
+    const type = (value) => fireEvent.change(root.querySelector('#login-id'), { target: { value } });
+    type('nobody@nowhere.rw');
+    fireEvent.submit(root.querySelector('form'));
+    expect(root.querySelector('.app-shell'), 'an unregistered identifier must open no shell').toBeNull();
+    expect(root.querySelector('[role="alert"]').textContent, 'and must say why').toContain('not registered');
+
+    // then a phone the seed has registered
+    type('0788123456');
+    fireEvent.submit(root.querySelector('form'));
+    await vi.waitFor(() => expect(root.querySelector('.app-shell')).not.toBeNull());
+    expect(root.querySelector('.app-shell').className).toContain('farmer-app');
   }, 20000);
 });

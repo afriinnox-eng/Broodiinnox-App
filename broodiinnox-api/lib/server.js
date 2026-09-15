@@ -8,6 +8,7 @@ import { createStore } from './store.js';
 import { Bridge } from './bridge.js';
 import { getWsHub } from './wsHub.js';
 import { DEFAULT_TOPIC_PREFIX } from './constants.js';
+import { createMailer, resolveMailConfig } from './mail.js';
 
 const g = globalThis;
 
@@ -25,6 +26,7 @@ export async function getBridge() {
       username: process.env.MQTT_USERNAME,
       password: process.env.MQTT_PASSWORD,
       store,
+      mailer: getMailer(),
     });
     // every ingest event is pushed to WebSocket subscribers
     bridge.onEvent = (ev) => getWsHub().publish(ev);
@@ -34,6 +36,18 @@ export async function getBridge() {
     bridge.start().catch((err) => console.error(`[bridge] start error: ${err.message}`));
   }
   return g.__broodiinnoxBridge;
+}
+
+/**
+ * One mailer for the process, cached the same way as the store and the bridge.
+ * Caching matters here: the SMTP connection pool is built once and reused for
+ * every notification instead of being rebuilt per email.
+ */
+export function getMailer() {
+  if (!g.__broodiinnoxMailer) {
+    g.__broodiinnoxMailer = createMailer(resolveMailConfig(process.env));
+  }
+  return g.__broodiinnoxMailer;
 }
 
 export async function ensureReady() {

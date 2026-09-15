@@ -1,3 +1,68 @@
+/* ===== sign-in: the code step, the forgot step, the reset card =====
+   Appended at the end of the file on purpose: these selectors are new, so
+   nothing here can override the screen rules above, including the phone
+   breakpoints - and a stylesheet where the last word wins is a stylesheet you
+   can still read from the top. */
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.link-btn:hover { text-decoration: underline; }
+
+.auth-note {
+  background: var(--brand-blue-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 26px 24px;
+  box-shadow: 0 12px 34px rgba(16, 24, 64, 0.09);
+}
+
+.auth-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.auth-head-icon {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--brand-blue);
+  display: grid;
+  place-items: center;
+  padding: 5px;
+}
+
+.auth-head-icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
 /* ===== AFRIINNOX / Broodiinnox design tokens =====
    Brand colors from AFRIINNOX Brand.pdf:
    Blue #1c3a96 · Green #3d5d30 · Black #000000 · White #ffffff */

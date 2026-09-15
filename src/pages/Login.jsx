@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStore } from '../lib/store.jsx';
 import { LANGS, t } from '../i18n/strings.js';
 import { Icon } from '../components/icons.jsx';
+import {
+  authApiFor, CODE_LENGTH, maskEmail, sessionFromAccount, validateCode,
+} from '../lib/auth.js';
 import brandIcon from '../assets/afriinnox-icon.png';
 
 /* The home screen's brand plate: the Afriinnox mark drawn as a ribbon along all
@@ -44,10 +47,25 @@ export default function Login() {
   const [id, setId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  /* One screen, three steps: the credentials, the emailed code, and the way back
+     in when the password is gone. The identifier is held across all three, so
+     nothing typed is lost in between. */
+  const [mode, setMode] = useState('credentials');
+  const [challenge, setChallenge] = useState(null); // { challengeId, sentTo, expiresMinutes }
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState(false); // the reset request was accepted
   const lang = state.lang || 'en';
+
+  /* Null unless a broodiinnox-api was configured at build time - the same switch
+     every other live feature uses. With no server configured this screen
+     behaves exactly as it did before the code step existed, which is what keeps
+     a build with no VITE_IOT_API_URL able to sign anyone in. */
+  const api = useMemo(() => authApiFor(import.meta.env), []);
 
   const doLogin = (user) => {
     setError('');
+    setSent(false);
     dispatch({ type: 'LOGIN', user });
   };
 
@@ -71,11 +89,110 @@ export default function Login() {
     return null;
   };
 
-  const submit = (e) => {
+  /* Step one. The registered identifier still decides who gets in - the Super
+     Admin registers every account - and it is checked before anything is sent
+     anywhere, so an identifier nobody registered never reaches the server and
+     never opens a shell. */
+  const submit = async (e) => {
     e.preventDefault();
+    if (busy) return;
     const account = lookup(id);
     if (!account) return setError(t('login.notRegistered', lang));
+    setError('');
+    if (!api) return doLogin(account);
+
+    setBusy(true);
+    const out = await api.login({ identifier: id.trim(), password });
+    setBusy(false);
+
+    if (out.kind === 'code-sent') {
+      setChallenge({
+        challengeId: out.challengeId,
+        sentTo: out.sentTo || maskEmail(account.email || ''),
+        expiresMinutes: out.expiresMinutes,
+      });
+      setCode('');
+      setMode('code');
+      return;
+    }
+
+    /* The server would not take the password: either it disagrees, or no
+       password has been recorded for this account yet - which is every account
+       until a reset link sets one. The registration above has already decided
+       this person may come in, so they come in, exactly as they did before this
+       step existed. That is deliberate: the code step may never become the
+       reason a farmer cannot reach their own chicks.
+
+       It is also deliberately SILENT about why, including when the server says
+       it cannot send email (503 mail-not-configured). The only screen that could
+       say so unmounts on the next line, and this app renders no toast anywhere,
+       so a message set here would exist in state and never be seen. The copy
+       lives where it can be read instead: the "forgot password" step says it
+       plainly, and so does the reset screen. */
     doLogin(account);
+  };
+
+  /* Step two: the code the server emailed. Nothing is decided here - the server
+     checked the password in step one and only the server can say these digits
+     are right. */
+  const verify = async (e) => {
+    e.preventDefault();
+    if (busy || !challenge) return;
+    const shape = validateCode(code);
+    if (!shape.ok) return setError(t('login.codeShape', lang, { n: CODE_LENGTH }));
+    setError('');
+    setBusy(true);
+    const out = await api.verifyCode({ challengeId: challenge.challengeId, code: shape.value });
+    setBusy(false);
+
+    if (out.kind === 'verified') {
+      const account = sessionFromAccount(out.account, state) || lookup(id);
+      if (!account) return setError(t('login.notRegistered', lang));
+      return doLogin(account);
+    }
+    if (out.kind !== 'refused') return setError(t('login.codeUnavailable', lang));
+    if (out.reason === 'wrong' && out.attemptsLeft === 0) return setError(t('login.codeDead', lang));
+    const wrong = t('login.codeWrong', lang);
+    setError(out.attemptsLeft ? `${wrong} ${t('login.codeAttempts', lang, { n: out.attemptsLeft })}` : wrong);
+  };
+
+  /* Another code for the same account: the password is still in hand, so this is
+     step one again rather than a second way in. */
+  const resend = async () => {
+    if (busy || !api) return;
+    setError('');
+    setBusy(true);
+    const out = await api.login({ identifier: id.trim(), password });
+    setBusy(false);
+    if (out.kind === 'code-sent') {
+      setChallenge({ challengeId: out.challengeId, sentTo: out.sentTo || challenge?.sentTo || '', expiresMinutes: out.expiresMinutes });
+      setCode('');
+      return;
+    }
+    setError(out.kind === 'unavailable' ? t('login.codeUnavailable', lang) : out.message);
+  };
+
+  const backToCredentials = () => {
+    setMode('credentials');
+    setChallenge(null);
+    setCode('');
+    setSent(false);
+    setError('');
+  };
+
+  /* The "forgot password" request. Its answer says only that the request was
+     looked at: the server replies the same way for an address it knows and one
+     it has never seen, so this screen must not add a hint of its own. */
+  const askForReset = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    if (!api) return setError(t('login.forgotUnavailable', lang));
+    setError('');
+    setBusy(true);
+    const out = await api.forgotPassword({ identifier: id.trim() });
+    setBusy(false);
+    if (out.kind === 'sent') return setSent(true);
+    setError(t('login.forgotUnavailable', lang));
   };
 
   /* the demo shortcuts sign in as the first registered account of each kind, through
@@ -128,49 +245,120 @@ export default function Login() {
 
       <div className="login-form-pane">
         <div style={{ width: '100%', maxWidth: 400 }}>
-          <h2 style={{ textAlign: 'center' }}>{t('login.title', lang)}</h2>
-          <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>{t('login.subtitle', lang)}</p>
+          {mode === 'forgot' ? (
+            <>
+              <h2 style={{ textAlign: 'center' }}>{t('login.forgotTitle', lang)}</h2>
+              <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>{t('login.forgotSubtitle', lang)}</p>
 
-          <form onSubmit={submit}>
-            <div className="field">
-              <label htmlFor="login-id">{t('login.identifier', lang)}</label>
-              <input id="login-id" value={id} autoComplete="username"
-                onChange={(e) => { setId(e.target.value); if (error) setError(''); }}
-                placeholder={t('login.identifierPh', lang)} required />
-            </div>
-            <div className="field">
-              <label htmlFor="login-password">{t('login.password', lang)}</label>
-              <input id="login-password" type="password" value={password} autoComplete="current-password"
-                onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
-            </div>
-            {error && (
-              <div className="warn-banner" role="alert" style={{ marginBottom: 12, alignItems: 'center' }}>
-                <Icon name="alert" size={16} /> {error}
+              {sent ? (
+                <div className="auth-note" role="status">{t('login.forgotSent', lang)}</div>
+              ) : (
+                <form onSubmit={askForReset}>
+                  <div className="field">
+                    <label htmlFor="forgot-id">{t('login.identifier', lang)}</label>
+                    <input id="forgot-id" value={id} autoComplete="username"
+                      onChange={(e) => { setId(e.target.value); if (error) setError(''); }}
+                      placeholder={t('login.identifierPh', lang)} required />
+                  </div>
+                  {error && (
+                    <div className="warn-banner" role="alert" style={{ marginBottom: 12, alignItems: 'center' }}>
+                      <Icon name="alert" size={16} /> {error}
+                    </div>
+                  )}
+                  <button className="btn" disabled={busy} style={{
+                    width: '100%', justifyContent: 'center', padding: 11,
+                    background: 'var(--brand-blue)', borderColor: 'var(--brand-blue)', color: '#fff',
+                  }}><Icon name="mail" size={16} /> {busy ? t('login.sending', lang) : t('login.forgotSend', lang)}</button>
+                </form>
+              )}
+
+              <div style={{ textAlign: 'center', marginTop: 14 }}>
+                <button type="button" className="link-btn" onClick={backToCredentials}>{t('login.backToSignIn', lang)}</button>
               </div>
-            )}
-            <button className="btn" style={{
-              width: '100%', justifyContent: 'center', padding: 11,
-              background: 'var(--brand-blue)', borderColor: 'var(--brand-blue)', color: '#fff',
-            }}><Icon name="lock" size={16} /> {t('login.signIn', lang)}</button>
-          </form>
+            </>
+          ) : mode === 'code' ? (
+            <>
+              <h2 style={{ textAlign: 'center' }}>{t('login.codeTitle', lang)}</h2>
+              <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>
+                {t('login.codeSubtitle', lang, { n: CODE_LENGTH, to: challenge?.sentTo || '', min: challenge?.expiresMinutes || 10 })}
+              </p>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
-            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-            <span className="muted small">{t('login.or', lang)}</span>
-            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-          </div>
+              <form onSubmit={verify}>
+                <div className="field">
+                  <label htmlFor="login-code">{t('login.codeLabel', lang)}</label>
+                  <input id="login-code" value={code} inputMode="numeric" autoComplete="one-time-code"
+                    maxLength={CODE_LENGTH + 2}
+                    onChange={(e) => { setCode(e.target.value); if (error) setError(''); }}
+                    placeholder={'0'.repeat(CODE_LENGTH)} required />
+                </div>
+                {error && (
+                  <div className="warn-banner" role="alert" style={{ marginBottom: 12, alignItems: 'center' }}>
+                    <Icon name="alert" size={16} /> {error}
+                  </div>
+                )}
+                <button className="btn" disabled={busy} style={{
+                  width: '100%', justifyContent: 'center', padding: 11,
+                  background: 'var(--brand-blue)', borderColor: 'var(--brand-blue)', color: '#fff',
+                }}><Icon name="lock" size={16} /> {busy ? t('login.verifying', lang) : t('login.codeVerify', lang)}</button>
+              </form>
 
-          <div className="grid cols-2">
-            <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.farmers)}
-              onClick={() => doLogin(demo(state.farmers))}>
-              <Icon name="users" size={16} /> {t('login.demoFarmer', lang)}
-            </button>
-            <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.admins)}
-              onClick={() => doLogin(demo(state.admins))}>
-              <Icon name="shield" size={16} /> {t('login.demoAdmin', lang)}
-            </button>
-          </div>
-          <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>{t('login.demoHint', lang)}</p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 14 }}>
+                <button type="button" className="link-btn" onClick={resend}>{t('login.codeResend', lang)}</button>
+                <button type="button" className="link-btn" onClick={backToCredentials}>{t('login.codeBack', lang)}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 style={{ textAlign: 'center' }}>{t('login.title', lang)}</h2>
+              <p className="muted" style={{ textAlign: 'center', marginBottom: 24 }}>{t('login.subtitle', lang)}</p>
+
+              <form onSubmit={submit}>
+                <div className="field">
+                  <label htmlFor="login-id">{t('login.identifier', lang)}</label>
+                  <input id="login-id" value={id} autoComplete="username"
+                    onChange={(e) => { setId(e.target.value); if (error) setError(''); }}
+                    placeholder={t('login.identifierPh', lang)} required />
+                </div>
+                <div className="field">
+                  <label htmlFor="login-password">{t('login.password', lang)}</label>
+                  <input id="login-password" type="password" value={password} autoComplete="current-password"
+                    onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
+                </div>
+                <div style={{ textAlign: 'right', marginBottom: 12 }}>
+                  <button type="button" className="link-btn" onClick={() => { setMode('forgot'); setError(''); setSent(false); }}>
+                    {t('login.forgot', lang)}
+                  </button>
+                </div>
+                {error && (
+                  <div className="warn-banner" role="alert" style={{ marginBottom: 12, alignItems: 'center' }}>
+                    <Icon name="alert" size={16} /> {error}
+                  </div>
+                )}
+                <button className="btn" disabled={busy} style={{
+                  width: '100%', justifyContent: 'center', padding: 11,
+                  background: 'var(--brand-blue)', borderColor: 'var(--brand-blue)', color: '#fff',
+                }}><Icon name="lock" size={16} /> {t('login.signIn', lang)}</button>
+              </form>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <span className="muted small">{t('login.or', lang)}</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+
+              <div className="grid cols-2">
+                <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.farmers)}
+                  onClick={() => doLogin(demo(state.farmers))}>
+                  <Icon name="users" size={16} /> {t('login.demoFarmer', lang)}
+                </button>
+                <button className="btn" style={{ justifyContent: 'center' }} disabled={!demo(state.admins)}
+                  onClick={() => doLogin(demo(state.admins))}>
+                  <Icon name="shield" size={16} /> {t('login.demoAdmin', lang)}
+                </button>
+              </div>
+              <p className="muted small" style={{ textAlign: 'center', marginTop: 16 }}>{t('login.demoHint', lang)}</p>
+            </>
+          )}
 
           {/* The price sheet publishes these; the sign-in screen is exactly where a
               locked-out or offline subscriber lands, so the real channels sit here. */}

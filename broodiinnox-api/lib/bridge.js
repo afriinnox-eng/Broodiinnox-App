@@ -13,13 +13,14 @@
 import mqtt from 'mqtt';
 import { ingestMessage, toReadingRow } from './ingest.js';
 import { deviceTopic } from './constants.js';
+import { notifyDeviceAlert } from './notify.js';
 
 function rnd() {
   return Math.random().toString(16).slice(2, 10);
 }
 
 export class Bridge {
-  constructor({ url, prefix = 'BROODIINNOX', username, password, store, onEvent = null, log = console }) {
+  constructor({ url, prefix = 'BROODIINNOX', username, password, store, onEvent = null, log = console, mailer = null }) {
     this.url = url;
     this.prefix = prefix;
     this.username = username || undefined;
@@ -27,6 +28,8 @@ export class Bridge {
     this.store = store;
     this.log = log;
     this.onEvent = onEvent; // optional push callback: (event) => void
+    this.mailer = mailer;    // optional: emails the people a condition concerns
+    this.notifications = []; // in-flight alert emails, for tests and shutdown
     this.client = null;
     this.connected = false;
     this.started = false;
@@ -120,18 +123,55 @@ export class Bridge {
     }
   }
 
-  /** Log an alert and push it to subscribers. */
+  /** Log an alert, push it to subscribers, and tell the people it concerns. */
   async logAlertEmit(deviceId, severity, kind, message) {
     const rec = await this.store.logAlert({ device_id: deviceId, severity, kind, message });
-    this.emit({
+    const event = {
       type: 'alert',
       device_id: deviceId,
       severity,
       kind,
       message,
       ts: (rec && rec.ts) || new Date().toISOString(),
-    });
+    };
+    this.emit(event);
+    this.notifyAlert(event);
     return rec;
+  }
+
+  /**
+   * Email the people a condition concerns — WITHOUT holding up the ingest loop.
+   *
+   * An SMTP round trip takes a second or more and this is called from the MQTT
+   * message handler, so awaiting it here would stall every reading behind a mail
+   * server. It is started, not waited on; the promise is kept on `notifications`
+   * so a test (or a shutdown) can await the in-flight sends, and a failure is
+   * logged rather than thrown at the bridge.
+   *
+   * Only critical and warning conditions are emailed. The `info` entries are
+   * recoveries ("sensors recovered"), which belong in the alert list and on the
+   * dashboard, not in somebody's inbox at two in the morning.
+   */
+  notifyAlert(alert) {
+    if (!alert || (alert.severity !== 'critical' && alert.severity !== 'warning')) return null;
+    const run = async () => {
+      const device = await this.store.getDevice(alert.device_id);
+      return notifyDeviceAlert({ store: this.store, mailer: this.mailer, device, alert });
+    };
+    const tracked = run().catch((err) => {
+      if (this.log?.warn) this.log.warn(`[bridge] alert notification failed: ${err.message}`);
+      return { ok: false, error: err.message };
+    });
+    this.notifications.push(tracked);
+    if (this.notifications.length > 50) this.notifications.splice(0, this.notifications.length - 50);
+    return tracked;
+  }
+
+  /** Await every alert notification started so far (used by tests and shutdown). */
+  async settleNotifications() {
+    const pending = this.notifications.slice();
+    this.notifications.length = 0;
+    return Promise.all(pending);
   }
 
   async handle(topic, payload) {

@@ -1,5 +1,5 @@
 import { json, options } from '../../../../../lib/http.js';
-import { ensureReady } from '../../../../../lib/server.js';
+import { ensureReady, getMailer } from '../../../../../lib/server.js';
 import { handleEkopayCallback } from '../../../../../lib/paymentFlow.js';
 
 /**
@@ -30,6 +30,7 @@ export async function POST(request, ctx) {
     bridge,
     body,
     reference: params?.reference || null,
+    mailer: getMailer(),
   });
   return json(out.body, out.status);
 }

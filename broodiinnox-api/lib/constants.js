@@ -13,6 +13,13 @@ export const DEFAULT_DEVICE_ID = 'BROODIINNOX-002';
 /** A valid device id is what the firmware accepts after the prefix in a topic. */
 export const DEVICE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 
+/**
+ * An address we are willing to store on a contact and send mail to: one `@`,
+ * a dotted domain, no whitespace. Deliberately not RFC 5322 — it rejects the
+ * shapes that are certainly wrong rather than accepting everything legal.
+ */
+export const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+
 /** Animal presets, order + names identical to `animal_names[]` in the .ino. */
 export const ANIMAL_PRESETS = ['Chicken', 'Pig', 'Turkey', 'Duck'];
 

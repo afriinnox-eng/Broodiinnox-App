@@ -1,6 +1,6 @@
 import { isAuthorized } from '../../../lib/auth.js';
 import { badRequest, json, ok, options, unauthorized } from '../../../lib/http.js';
-import { ensureReady } from '../../../lib/server.js';
+import { ensureReady, getMailer } from '../../../lib/server.js';
 import { publicPayment } from '../../../lib/payments.js';
 import { createPaymentRequest } from '../../../lib/paymentFlow.js';
 
@@ -46,7 +46,7 @@ export async function POST(request) {
     return badRequest('Body must be JSON: { device_id, amount, phone, farmer_id?, plan_id? }');
   }
 
-  const out = await createPaymentRequest({ store, body });
+  const out = await createPaymentRequest({ store, body, mailer: getMailer() });
   return json(out.body, out.status);
 }
 

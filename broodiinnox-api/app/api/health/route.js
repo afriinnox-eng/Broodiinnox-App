@@ -3,6 +3,7 @@ import { ok, unauthorized, options } from '../../../lib/http.js';
 import { ensureReady } from '../../../lib/server.js';
 import { DEFAULT_TOPIC_PREFIX } from '../../../lib/constants.js';
 import { describeEkopayConfig, resolveEkopayConfig } from '../../../lib/ekopay.js';
+import { describeMailConfig, resolveMailConfig } from '../../../lib/mail.js';
 
 export async function GET() {
   const { store, bridge } = await ensureReady();
@@ -27,6 +28,9 @@ export async function GET() {
     // merchant number). `enabled: false` here is the answer to "why did the app
     // say payments are not configured?".
     ekopay: describeEkopayConfig(resolveEkopayConfig(process.env)),
+    // Whether notifications can actually be delivered, and which env vars are
+    // still to be set (names only — never the mailbox password).
+    mail: describeMailConfig(resolveMailConfig(process.env)),
   });
 }
 

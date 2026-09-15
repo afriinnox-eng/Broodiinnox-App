@@ -32,9 +32,10 @@ import {
 } from './ekopay.js';
 import {
   applyProviderStatus, awaitsProvider, buildPayment, failPayment, findReusablePending,
-  newPaymentId, paymentPatch, paymentTouched, publicPayment, shouldPollStatus,
+  isConfirmed, newPaymentId, paymentPatch, paymentTouched, publicPayment, shouldPollStatus,
   unlockDeviceAfterPayment, validatePaymentInput, STATUS_POLL_AFTER_MS,
 } from './payments.js';
+import { notifyPaymentResult } from './notify.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -108,7 +109,7 @@ function notConfigured(config) {
  * one exists, so a refused or failed attempt is visible in the app and to
  * Afriinnox rather than vanishing.
  */
-export async function createPaymentRequest({ store, body, env = process.env, fetchImpl, now = nowIso() } = {}) {
+export async function createPaymentRequest({ store, body, env = process.env, fetchImpl, now = nowIso(), mailer = null } = {}) {
   const { config, client } = ekopayFromEnv(env, fetchImpl);
 
   const input = validatePaymentInput(body, { currency: config.currency, countryCode: config.countryCode });
@@ -172,11 +173,18 @@ export async function createPaymentRequest({ store, body, env = process.env, fet
     // decided by the gateway and by nothing else.
     if (isDefiniteEkopayRejection(err)) {
       const failed = await store.updatePayment(id, paymentPatch(failPayment(row, reason, now)));
+      const settled = failed || failPayment(row, reason, now);
+      // The gateway refused it outright, so there is a decision worth telling
+      // the farmer about: no collection exists and nothing was charged.
+      const notification = await notifyPaymentSafely({
+        store, mailer, payment: settled, device, confirmed: false,
+      });
       return {
         status: 502,
         body: {
           error: ekopayErrorMessage(err),
-          payment: publicPayment(failed || failPayment(row, reason, now)),
+          payment: publicPayment(settled),
+          notification: summarizeNotification(notification),
         },
       };
     }
@@ -201,7 +209,7 @@ export async function createPaymentRequest({ store, body, env = process.env, fet
  * provider error leaves the payment PENDING — a network hiccup is not a failed
  * payment, and only the provider may fail one.
  */
-export async function refreshPayment({ store, bridge, paymentId, env = process.env, fetchImpl, now = nowIso(), force = false, prefix } = {}) {
+export async function refreshPayment({ store, bridge, paymentId, env = process.env, fetchImpl, now = nowIso(), force = false, prefix, mailer = null } = {}) {
   const payment = await store.getPayment(paymentId);
   if (!payment) return { status: 404, body: { error: `No payment "${paymentId}"` } };
   // A payment the PROVIDER settled is history and is not asked about again. One
@@ -235,13 +243,18 @@ export async function refreshPayment({ store, bridge, paymentId, env = process.e
   const stored = await store.updatePayment(payment.id, paymentPatch(applied.payment));
 
   let unlock = null;
+  let device = null;
   if (applied.confirmed) {
-    const device = await store.getDevice(payment.device_id);
+    device = await store.getDevice(payment.device_id);
     unlock = await unlockDeviceAfterPayment({
       store, bridge, prefix: prefix || process.env.MQTT_TOPIC_PREFIX || DEFAULT_TOPIC_PREFIX,
       payment: stored || payment, device,
     });
   }
+
+  const notification = await notifyIfSettled({
+    store, mailer, applied, payment: stored || applied.payment, deviceId: payment.device_id, device, unlock,
+  });
 
   return {
     status: 200,
@@ -250,6 +263,7 @@ export async function refreshPayment({ store, bridge, paymentId, env = process.e
       refreshed: true,
       confirmed: applied.confirmed,
       device_unlock: unlock,
+      notification: summarizeNotification(notification),
     },
   };
 }
@@ -274,7 +288,7 @@ export async function refreshPayment({ store, bridge, paymentId, env = process.e
  * `callbackReply` — so the production log, not an inference, says whether
  * Ekorana called and what it was told to do.
  */
-export async function handleEkopayCallback({ store, bridge, body, reference, env = process.env, fetchImpl, now = nowIso(), prefix } = {}) {
+export async function handleEkopayCallback({ store, bridge, body, reference, env = process.env, fetchImpl, now = nowIso(), prefix, mailer = null } = {}) {
   const ref = firstString(body?.referenceId, body?.reference_id, reference, body?.externalId, body?.external_id, body?.id);
 
   let payment = null;
@@ -322,21 +336,80 @@ export async function handleEkopayCallback({ store, bridge, body, reference, env
   const stored = await store.updatePayment(payment.id, paymentPatch(applied.payment));
 
   let unlock = null;
+  let device = null;
   if (applied.confirmed) {
-    const device = await store.getDevice(payment.device_id);
+    device = await store.getDevice(payment.device_id);
     unlock = await unlockDeviceAfterPayment({
       store, bridge, prefix: prefix || process.env.MQTT_TOPIC_PREFIX || DEFAULT_TOPIC_PREFIX,
       payment: stored || payment, device,
     });
   }
+
+  const notification = await notifyIfSettled({
+    store, mailer, applied, payment: stored || applied.payment, deviceId: payment.device_id, device, unlock,
+  });
+
   return callbackReply({
     status: 200,
     event: 'verified',
     ref,
     payment: stored || applied.payment,
     confirmed: Boolean(applied.confirmed),
-    body: { received: true, verified: true, confirmed: applied.confirmed, payment: publicPayment(stored || applied.payment), device_unlock: unlock },
+    body: {
+      received: true, verified: true, confirmed: applied.confirmed,
+      payment: publicPayment(stored || applied.payment),
+      device_unlock: unlock,
+      notification: summarizeNotification(notification),
+    },
   });
+}
+
+/**
+ * Email the farmer only when the gateway has actually SETTLED this payment, and
+ * only on the transition that settled it.
+ *
+ * Two gates, and both matter:
+ *
+ *   applied.changed — a poll or a callback that changed nothing (the gateway
+ *                     still says pending) must not send a second receipt.
+ *   !awaitsProvider — the payment must no longer be waiting on an answer. A
+ *                     payment WE failed for want of a reply is still owed one,
+ *                     so it is not a decision and there is nothing to report;
+ *                     reporting it would be exactly the "your payment failed"
+ *                     email that the RWF 25,000 incident would have sent to a
+ *                     farmer who had already paid.
+ */
+async function notifyIfSettled({ store, mailer, applied, payment, deviceId, device = null, unlock = null }) {
+  if (!applied?.changed || !payment) return null;
+  if (awaitsProvider(payment)) return null;
+  const confirmed = isConfirmed(payment);
+  const under = device || (deviceId && store.getDevice ? await store.getDevice(deviceId) : null);
+  return notifyPaymentSafely({ store, mailer, payment, device: under, confirmed, unlock });
+}
+
+/**
+ * Tell the farmer what the gateway decided. Never fatal: an undeliverable
+ * notification must not fail a payment that was just confirmed and a device
+ * that was just unlocked.
+ */
+async function notifyPaymentSafely({ store, mailer, payment, device = null, confirmed, unlock = null }) {
+  try {
+    return await notifyPaymentResult({ store, mailer, payment, device, confirmed, unlock });
+  } catch (err) {
+    console.error(`[payments] notification failed for ${payment?.id}: ${err?.message || err}`);
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+/** The delivery outcome, small enough to sit in an API response. */
+function summarizeNotification(out) {
+  if (!out) return null;
+  return {
+    sent: out.sent || 0,
+    skipped: out.skipped || 0,
+    failed: out.failed || 0,
+    error: out.error || null,
+  };
 }
 
 function firstString(...vals) {
