@@ -31,10 +31,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
 import { buildSeed } from '../lib/seed.js';
+import { LANGS, t } from '../i18n/strings.js';
 import brandIcon from '../assets/afriinnox-icon.png';
 
 const KEY = 'broodiinnox_app_v1';
@@ -174,7 +175,7 @@ describe('the home screen header: the mark closed into a plate around the words'
     // everything else the screen says is inside the frame
     expect(plate.querySelector('h1')).not.toBeNull();
     expect(plate.querySelector('p')).not.toBeNull();
-    ['Automatic failsafe heating', 'Remote control & live alerts', 'MTN MoMo subscriptions']
+    ['Failsafe heating', 'Remote control', 'MTN MoMo payments']
       .forEach((tx) => expect(plate.textContent, tx).toContain(tx));
     expect(plate.querySelectorAll('button').length).toBeGreaterThanOrEqual(3); // the language strip
   });
@@ -182,7 +183,7 @@ describe('the home screen header: the mark closed into a plate around the words'
   it('leaves out how many sensors a system needs, and keeps the other promises', () => {
     renderApp('/', null);
     expect(screen.queryByText(/sensor/i)).toBeNull();
-    ['Automatic failsafe heating', 'Remote control & live alerts', 'MTN MoMo subscriptions']
+    ['Failsafe heating', 'Remote control', 'MTN MoMo payments']
       .forEach((tx) => expect(screen.getByText(tx)).toBeInTheDocument());
   });
 
@@ -346,6 +347,81 @@ describe('INVARIANT: every mark the plate draws is a legible, decorative rounded
     // the words the frame surrounds are still exactly the product and the maker
     const brandRow = container.querySelector('.login-brand').parentElement;
     expect(brandRow.textContent).toBe('BROODIINNOXby AFRIINNOX Ltd');
+  });
+});
+
+describe('the composition inside the frame sits on one three-column rhythm', () => {
+  /** The declarations of one rule, by its exact selector. */
+  function rule(selector) {
+    const css = fs.readFileSync(path.resolve(process.cwd(), 'src', 'styles', 'global.css'), 'utf8');
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css);
+    return m ? m[1] : '';
+  }
+
+  it('lays the promise tiles and the language strip on the same three equal columns', () => {
+    const { container } = renderApp('/', null);
+    const plate = container.querySelector('.login-plate');
+
+    for (const sel of ['.login-promises', '.login-langs']) {
+      const body = rule(sel);
+      expect(body, `${sel} declares its layout`).not.toBe('');
+      expect(body, `${sel} is three equal columns`).toMatch(/grid-template-columns:\s*repeat\(3,\s*1fr\)/);
+    }
+    expect(plate.querySelectorAll('.login-promise')).toHaveLength(3);
+    expect(plate.querySelectorAll('.login-lang')).toHaveLength(3);
+  });
+
+  it('keeps every label short enough to hold one line in its cell', () => {
+    const { container } = renderApp('/', null);
+    const plate = container.querySelector('.login-plate');
+    const tiles = [...plate.querySelectorAll('.login-promise')];
+    expect(tiles).toHaveLength(3);
+
+    for (const tile of tiles) {
+      expect(tile.querySelector('.login-promise-icon svg[aria-hidden="true"]'), 'every tile carries its icon').not.toBeNull();
+      const label = tile.querySelector('.login-promise-label');
+      expect(label).not.toBeNull();
+      // a label that outgrows its third of the row is what read as disordered
+      expect(label.textContent.trim().length, `"${label.textContent}" must fit one line`).toBeLessThanOrEqual(18);
+    }
+    for (const lang of plate.querySelectorAll('.login-lang')) {
+      expect(lang.textContent.trim().length, `"${lang.textContent}" must fit its cell`).toBeLessThanOrEqual(14);
+      expect(lang.getAttribute('type'), 'a language choice never submits the form').toBe('button');
+    }
+  });
+
+  it('names exactly one language as current, and never more', () => {
+    const { container } = renderApp('/', null);
+    const plate = container.querySelector('.login-plate');
+    const current = [...plate.querySelectorAll('.login-lang')].filter((b) => b.classList.contains('on'));
+    expect(current).toHaveLength(1);
+    expect(current[0].getAttribute('aria-pressed')).toBe('true');
+    expect([...plate.querySelectorAll('.login-lang')].map((b) => b.textContent)).toEqual(['English', 'Français', 'Kinyarwanda']);
+  });
+
+  it('switches the page for every language in the strip, one language at a time', () => {
+    const { container } = renderApp('/', null);
+    const plate = container.querySelector('.login-plate');
+    const pills = () => [...plate.querySelectorAll('.login-lang')];
+    const current = () => pills().filter((b) => b.classList.contains('on'));
+
+    expect(current().map((b) => b.textContent)).toEqual(['English']); // the default the app ships
+
+    // every language the strip offers, not just the one a happy path would pick
+    for (const lang of LANGS) {
+      const pill = pills().find((b) => b.textContent === lang.label);
+      expect(pill, `${lang.label} is offered`).toBeDefined();
+      fireEvent.click(pill);
+
+      expect(current(), `exactly one language is current after choosing ${lang.label}`).toHaveLength(1);
+      expect(current()[0].textContent).toBe(lang.label);
+      expect(pills().filter((b) => b.getAttribute('aria-pressed') === 'true'), 'and only one is pressed').toHaveLength(1);
+      expect(pills().find((b) => b.textContent === lang.label).getAttribute('aria-pressed')).toBe('true');
+
+      // the choice reaches the words inside the frame, not just the pill
+      expect(container.querySelector('.login-plate h1').textContent).toBe(t('app.subtitle', lang.code));
+    }
   });
 });
 

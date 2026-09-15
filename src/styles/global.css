@@ -275,6 +275,36 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 }
 .login-plate-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
+/* The composition inside the frame, on one three-column rhythm so nothing wraps
+   raggedly: a title, one line of copy, three equal tiles, then the language strip
+   behind a hairline. Every element is either full width or exactly one third, which
+   is what makes the inside read as arranged rather than loose. */
+.login-plate-line {
+  margin: 0; max-width: 400px; font-size: 13px; line-height: 1.55; opacity: 0.86;
+}
+.login-promises { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.login-promise {
+  display: flex; flex-direction: column; gap: 9px; padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.login-promise-icon {
+  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.14); flex: none;
+}
+.login-promise-label { font-size: 12px; font-weight: 700; line-height: 1.3; letter-spacing: 0.2px; }
+.login-langs {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 2px;
+  padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+.login-lang {
+  padding: 7px 0; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06); color: #fff; font-family: inherit;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.4px; cursor: pointer;
+}
+.login-lang:hover { background: rgba(255, 255, 255, 0.14); }
+.login-lang.on { background: #fff; color: var(--brand-blue); border-color: #fff; }
+
 /* ===== home screen: who to call ===== */
 .login-contact {
   display: flex; flex-direction: column; align-items: center; gap: 7px; margin-top: 20px;

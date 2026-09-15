@@ -86,24 +86,23 @@ export default function Login() {
           <PlateRail edge="bottom" marks={PLATE_HORIZONTAL} />
           <PlateRail edge="side left" marks={PLATE_VERTICAL} />
           <PlateRail edge="side right" marks={PLATE_VERTICAL} />
-          <h1 style={{ fontSize: 30, maxWidth: 420 }}>{t('app.subtitle', lang)}</h1>
-          <p style={{ opacity: 0.85, maxWidth: 460, lineHeight: 1.6, margin: 0 }}>
-            Monitor temperature, manage batches, control your brooding systems remotely and keep your chicks,
-            ducklings, poults and piglets safe — from anywhere with signal.
+          <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: 0.2, margin: 0 }}>{t('app.subtitle', lang)}</h1>
+          <p className="login-plate-line">
+            Monitor temperature, control the brooders, keep every batch safe.
           </p>
-          <div className="row" style={{ gap: 20, margin: '4px 0 2px' }}>
-            {[['flame', 'Automatic failsafe heating'], ['wifi', 'Remote control & live alerts'], ['card', 'MTN MoMo subscriptions']].map(([ic, tx]) => (
-              <div key={ic} className="row" style={{ gap: 8, fontSize: 12.5, lineHeight: 1.35, alignItems: 'flex-start', maxWidth: 130 }}>
-                <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,255,255,0.14)', display: 'grid', placeItems: 'center', flex: 'none' }}>
-                  <Icon name={ic} size={17} />
-                </span>
-                <span style={{ opacity: 0.95 }}>{tx}</span>
+
+          <div className="login-promises">
+            {[['flame', 'Failsafe heating'], ['wifi', 'Remote control'], ['card', 'MTN MoMo payments']].map(([ic, tx]) => (
+              <div key={ic} className="login-promise">
+                <span className="login-promise-icon"><Icon name={ic} size={16} /></span>
+                <span className="login-promise-label">{tx}</span>
               </div>
             ))}
           </div>
-          <div className="row" style={{ gap: 8, marginTop: 2 }}>
+
+          <div className="login-langs">
             {['en', 'fr', 'rw'].map((c) => (
-              <button key={c} className="btn" style={{ background: lang === c ? '#fff' : 'rgba(255,255,255,0.15)', color: lang === c ? '#1c3a96' : '#fff', borderColor: 'transparent' }}
+              <button key={c} type="button" className={`login-lang${lang === c ? ' on' : ''}`} aria-pressed={lang === c}
                 onClick={() => dispatch({ type: 'SET_LANG', lang: c })}>
                 {LANGS.find((l) => l.code === c).label}
               </button>
