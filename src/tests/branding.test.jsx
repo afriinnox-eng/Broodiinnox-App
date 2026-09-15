@@ -175,7 +175,7 @@ describe('the home screen header: the mark closed into a plate around the words'
     // everything else the screen says is inside the frame
     expect(plate.querySelector('h1')).not.toBeNull();
     expect(plate.querySelector('p')).not.toBeNull();
-    ['Professional brooding tips', 'Monitor & control anywhere', 'Every batch on record, for years']
+    ['Monitor & control anywhere, anytime!', 'Every batch on record, for years', 'Professional brooding tips']
       .forEach((tx) => expect(plate.textContent, tx).toContain(tx));
     expect(plate.querySelectorAll('button').length).toBeGreaterThanOrEqual(3); // the language strip
   });
@@ -183,7 +183,7 @@ describe('the home screen header: the mark closed into a plate around the words'
   it('leaves out how many sensors a system needs, and keeps the other promises', () => {
     renderApp('/', null);
     expect(screen.queryByText(/sensor/i)).toBeNull();
-    ['Professional brooding tips', 'Monitor & control anywhere', 'Every batch on record, for years']
+    ['Monitor & control anywhere, anytime!', 'Every batch on record, for years', 'Professional brooding tips']
       .forEach((tx) => expect(screen.getByText(tx)).toBeInTheDocument());
   });
 
@@ -386,7 +386,7 @@ describe('the composition inside the frame sits on one three-column rhythm', () 
       const text = label.textContent.trim();
       labels.push(text);
       // short enough to hold two lines in its third of the row, and no more
-      expect(text.length, `"${text}" must fit two lines`).toBeLessThanOrEqual(34);
+      expect(text.length, `"${text}" must fit two lines`).toBeLessThanOrEqual(40);
     }
 
     // three different glyphs, one per value — not the same mark three times

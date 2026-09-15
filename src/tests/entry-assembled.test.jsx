@@ -53,7 +53,7 @@ describe('the entry point a browser loads', () => {
     // language strip. The frame can be right while the inside of it never rendered.
     expect(plate.querySelectorAll('.login-promise')).toHaveLength(3);
     expect([...plate.querySelectorAll('.login-promise-label')].map((el) => el.textContent))
-      .toEqual(['Professional brooding tips', 'Monitor & control anywhere', 'Every batch on record, for years']);
+      .toEqual(['Monitor & control anywhere, anytime!', 'Every batch on record, for years', 'Professional brooding tips']);
     expect(plate.querySelectorAll('.login-lang')).toHaveLength(3);
     expect(plate.querySelector('.login-lang.on').textContent).toBe('English');
 

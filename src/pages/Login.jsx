@@ -88,11 +88,11 @@ export default function Login() {
           <PlateRail edge="side right" marks={PLATE_VERTICAL} />
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: 0.2, margin: 0 }}>{t('app.subtitle', lang)}</h1>
           <p className="login-plate-line">
-            Monitor temperature, control the brooders, keep every batch safe.
+            Monitor temperature, control the brooding, and keep every batch of chicks, ducks and turkeys safe.
           </p>
 
           <div className="login-promises">
-            {[['bulb', 'Professional brooding tips'], ['wifi', 'Monitor & control anywhere'], ['chart', 'Every batch on record, for years']].map(([ic, tx]) => (
+            {[['wifi', 'Monitor & control anywhere, anytime!'], ['chart', 'Every batch on record, for years'], ['bulb', 'Professional brooding tips']].map(([ic, tx]) => (
               <div key={ic} className="login-promise">
                 <span className="login-promise-icon"><Icon name={ic} size={16} /></span>
                 <span className="login-promise-label">{tx}</span>
