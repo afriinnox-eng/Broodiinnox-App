@@ -253,7 +253,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
    plate's padding on that side — so the ribbon always sits in the padding and can
    never land on a word, at any mark size the component can produce. */
 .login-plate {
-  position: relative; display: flex; flex-direction: column; gap: 16px;
+  position: relative; display: flex; flex-direction: column; gap: 16px; text-align: center;
   padding: 38px 34px; border-radius: 26px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.035) 100%);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -277,14 +277,15 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
 /* The composition inside the frame, on one three-column rhythm so nothing wraps
    raggedly: a title, one line of copy, three equal tiles, then the language strip
-   behind a hairline. Every element is either full width or exactly one third, which
-   is what makes the inside read as arranged rather than loose. */
+   behind a hairline. Every element is either full width or exactly one third, and
+   all of it is centred — the frame is the design, so its contents sit on its axis. */
 .login-plate-line {
-  margin: 0; max-width: 400px; font-size: 13px; line-height: 1.55; opacity: 0.86;
+  margin: 0 auto; max-width: 400px; font-size: 13px; line-height: 1.55; opacity: 0.86;
 }
 .login-promises { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .login-promise {
-  display: flex; flex-direction: column; gap: 9px; padding: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 12px;
+  text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px;
   background: rgba(255, 255, 255, 0.06);
 }
@@ -298,7 +299,7 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
   padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 .login-lang {
-  padding: 7px 0; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px;
+  padding: 7px 0; text-align: center; border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 8px;
   background: rgba(255, 255, 255, 0.06); color: #fff; font-family: inherit;
   font-size: 12px; font-weight: 700; letter-spacing: 0.4px; cursor: pointer;
 }

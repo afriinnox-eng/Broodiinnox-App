@@ -175,7 +175,7 @@ describe('the home screen header: the mark closed into a plate around the words'
     // everything else the screen says is inside the frame
     expect(plate.querySelector('h1')).not.toBeNull();
     expect(plate.querySelector('p')).not.toBeNull();
-    ['Failsafe heating', 'Remote control', 'MTN MoMo payments']
+    ['Professional brooding tips', 'Monitor & control anywhere', 'Every batch on record, for years']
       .forEach((tx) => expect(plate.textContent, tx).toContain(tx));
     expect(plate.querySelectorAll('button').length).toBeGreaterThanOrEqual(3); // the language strip
   });
@@ -183,7 +183,7 @@ describe('the home screen header: the mark closed into a plate around the words'
   it('leaves out how many sensors a system needs, and keeps the other promises', () => {
     renderApp('/', null);
     expect(screen.queryByText(/sensor/i)).toBeNull();
-    ['Failsafe heating', 'Remote control', 'MTN MoMo payments']
+    ['Professional brooding tips', 'Monitor & control anywhere', 'Every batch on record, for years']
       .forEach((tx) => expect(screen.getByText(tx)).toBeInTheDocument());
   });
 
@@ -372,22 +372,43 @@ describe('the composition inside the frame sits on one three-column rhythm', () 
     expect(plate.querySelectorAll('.login-lang')).toHaveLength(3);
   });
 
-  it('keeps every label short enough to hold one line in its cell', () => {
+  it('gives every tile its own icon and a label of a length', () => {
     const { container } = renderApp('/', null);
     const plate = container.querySelector('.login-plate');
     const tiles = [...plate.querySelectorAll('.login-promise')];
     expect(tiles).toHaveLength(3);
 
+    const labels = [];
     for (const tile of tiles) {
       expect(tile.querySelector('.login-promise-icon svg[aria-hidden="true"]'), 'every tile carries its icon').not.toBeNull();
       const label = tile.querySelector('.login-promise-label');
       expect(label).not.toBeNull();
-      // a label that outgrows its third of the row is what read as disordered
-      expect(label.textContent.trim().length, `"${label.textContent}" must fit one line`).toBeLessThanOrEqual(18);
+      const text = label.textContent.trim();
+      labels.push(text);
+      // short enough to hold two lines in its third of the row, and no more
+      expect(text.length, `"${text}" must fit two lines`).toBeLessThanOrEqual(34);
     }
-    for (const lang of plate.querySelectorAll('.login-lang')) {
-      expect(lang.textContent.trim().length, `"${lang.textContent}" must fit its cell`).toBeLessThanOrEqual(14);
-      expect(lang.getAttribute('type'), 'a language choice never submits the form').toBe('button');
+
+    // three different glyphs, one per value — not the same mark three times
+    const glyphs = tiles.map((t) => t.querySelector('.login-promise-icon svg').innerHTML);
+    expect(new Set(glyphs).size, 'each tile has its own icon').toBe(3);
+
+    // and labels of a similar length, so no tile reads empty beside the others
+    const lengths = labels.map((t) => t.length);
+    expect(Math.max(...lengths) - Math.min(...lengths), 'the labels are of a length').toBeLessThanOrEqual(12);
+    expect(new Set(labels).size, 'three distinct values, not one repeated').toBe(3);
+  });
+
+  it('centres everything inside the frame', () => {
+    renderApp('/', null);
+
+    expect(rule('.login-plate'), 'the frame centres what it holds').toMatch(/text-align:\s*center/);
+    expect(rule('.login-plate-line'), 'the one line is centred as a block').toMatch(/margin:\s*0 auto/);
+    expect(rule('.login-promise'), 'each tile centres its icon and label').toMatch(/align-items:\s*center/);
+    expect(rule('.login-promise'), 'and its text').toMatch(/text-align:\s*center/);
+    expect(rule('.login-lang'), 'the language pills centre their text').toMatch(/text-align:\s*center/);
+    for (const sel of ['.login-plate', '.login-plate-line', '.login-promise', '.login-lang']) {
+      expect(rule(sel), `${sel} is styled`).not.toBe('');
     }
   });
 

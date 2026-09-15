@@ -92,7 +92,7 @@ export default function Login() {
           </p>
 
           <div className="login-promises">
-            {[['flame', 'Failsafe heating'], ['wifi', 'Remote control'], ['card', 'MTN MoMo payments']].map(([ic, tx]) => (
+            {[['bulb', 'Professional brooding tips'], ['wifi', 'Monitor & control anywhere'], ['chart', 'Every batch on record, for years']].map(([ic, tx]) => (
               <div key={ic} className="login-promise">
                 <span className="login-promise-icon"><Icon name={ic} size={16} /></span>
                 <span className="login-promise-label">{tx}</span>
