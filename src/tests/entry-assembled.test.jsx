@@ -12,14 +12,18 @@
  * BROODIINNOX / by AFRIINNOX Ltd — none of the wording it replaced, and the plate
  * that sits below them: four rails of the brand mark around everything after it.
  *
+ * It then does what a user does next — signs in — and asserts the sidebar they land
+ * in carries the same brand wording, which no signed-out boot can show.
+ *
  * One boot per file on purpose: main.jsx creates its own React root and keeps
  * its effects alive, so a second boot in the same file would render against a
  * state the previous root is still writing back to localStorage.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { fireEvent } from '@testing-library/react';
 
 describe('the entry point a browser loads', () => {
-  it('mounts and renders the home screen with the new wording beside the icon', async () => {
+  it('mounts the home screen, then signs in and shows the sidebar brand', async () => {
     localStorage.clear();
     document.body.innerHTML = '<div id="root"></div>';
     await import('../main.jsx');
@@ -62,5 +66,17 @@ describe('the entry point a browser loads', () => {
       expect(rail.getAttribute('aria-hidden')).toBe('true');
       expect(rail.textContent).toBe('');
     });
+
+    // then the next thing a user does: sign in. The sidebar only exists once they
+    // have, so this is the only level that can prove what it says.
+    const demo = [...root.querySelectorAll('button')].find((b) => /demo farmer/i.test(b.textContent));
+    expect(demo, 'the sign-in screen offers the demo farmer').toBeDefined();
+    fireEvent.click(demo);
+
+    await vi.waitFor(() => expect(root.querySelector('.sidebar .brand-name')).not.toBeNull());
+    expect(root.querySelector('.sidebar .brand-name').textContent.trim()).toBe('BROODIINNOX');
+    expect(root.querySelector('.sidebar .brand-sub').textContent.trim()).toBe('by AFRIINNOX Ltd');
+    // and the role is still named in the sidebar, on the section label
+    expect(root.querySelector('.sidebar .nav-section').textContent.trim()).toBe('Farmer App');
   }, 20000);
 });
