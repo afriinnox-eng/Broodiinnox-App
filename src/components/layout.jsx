@@ -118,13 +118,13 @@ export default function AppShell({ children }) {
     <div className={`app-shell ${role === 'admin' ? 'console' : 'farmer-app'}`}>
       <aside className="sidebar">
         <div className="brand">
-          {/* alt empty on purpose: the AFRIINNOX wordmark sits right beside it */}
+          {/* alt empty on purpose: the wordmark beside it names the product and the maker */}
           <div className="brand-mark">
             <img src={brandIcon} alt="" aria-hidden="true" />
           </div>
           <div>
-            <div className="brand-name">AFRIINNOX</div>
-            <div className="brand-sub">{role === 'admin' ? 'Operations Console' : 'Broodiinnox'}</div>
+            <div className="brand-name">BROODIINNOX</div>
+            <div className="brand-sub">by AFRIINNOX Ltd</div>
           </div>
         </div>
         <NavSection section={role === 'admin' ? 'Afriinnox Admin' : 'Farmer App'} items={nav} base={base} lang={lang} />

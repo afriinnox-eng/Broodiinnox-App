@@ -130,10 +130,10 @@ describe('the icon is the brand mark on the home screen', () => {
     expect(img.getAttribute('src')).toMatch(ICON);
     expect(mark.textContent.trim()).toBe('');
 
-    // the wordmark and role line beside the tile are unchanged
-    expect(container.querySelector('.sidebar .brand-name').textContent.trim()).toBe('AFRIINNOX');
-    expect(container.querySelector('.sidebar .brand-sub').textContent.trim())
-      .toBe(role === 'admin' ? 'Operations Console' : 'Broodiinnox');
+    // the wordmark beside the tile now names the product and the maker, as on the
+    // home screen - the same words, in both shells
+    expect(container.querySelector('.sidebar .brand-name').textContent.trim()).toBe('BROODIINNOX');
+    expect(container.querySelector('.sidebar .brand-sub').textContent.trim()).toBe('by AFRIINNOX Ltd');
   });
 });
 

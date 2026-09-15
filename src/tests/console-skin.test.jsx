@@ -3,8 +3,8 @@
  *
  * The change splits the shared shell into two skins: the farmer app keeps the
  * light-blue app shell (`farmer-app`), the Afriinnox Admin gets the dark
- * operations-console shell (`console`), plus a matching role identity line in
- * the sidebar and role-coloured accents on the login role tabs/sign-in button.
+ * operations-console shell (`console`), plus a matching role label in the
+ * sidebar and role-coloured accents on the login role tabs/sign-in button.
  *
  * These are invariants — properties that must hold for EVERY valid input, not
  * one happy-path screenshot:
@@ -12,9 +12,11 @@
  *   1. SHELL IDENTITY — on every registered route of every role, the shell
  *      carries exactly the role's class (`console` xor `farmer-app`), never
  *      both, never the other role's, never neither.
- *   2. IDENTITY LINE — the sidebar brand sub-line always matches the signed-in
- *      role ("Operations Console" for admin, "Broodiinnox" for farmer), on
- *      every route.
+ *   2. BRAND AND ROLE — the sidebar brand block names the product and the maker in
+ *      both shells ("BROODIINNOX" over "by AFRIINNOX Ltd", as on the home
+ *      screen), while the role is carried by the sidebar's own section label
+ *      ("Afriinnox Admin" / "Farmer App") on every route, so the two shells still
+ *      read apart.
  *   3. NO EMOJI IN RENDERED UI — nothing the user sees on any page of either
  *      role contains a pictographic/emoji glyph (the "AI look" the skin was
  *      built without). Asserted on rendered DOM text, not just source.
@@ -94,8 +96,8 @@ const NAV_KEYS = {
 };
 
 const SHELL = {
-  admin: { cls: 'console', sub: 'Operations Console', other: 'farmer-app' },
-  farmer: { cls: 'farmer-app', sub: 'Broodiinnox', other: 'console' },
+  admin: { cls: 'console', name: 'BROODIINNOX', sub: 'by AFRIINNOX Ltd', section: 'Afriinnox Admin', other: 'farmer-app' },
+  farmer: { cls: 'farmer-app', name: 'BROODIINNOX', sub: 'by AFRIINNOX Ltd', section: 'Farmer App', other: 'console' },
 };
 
 function seedWith(session, theme = 'light') {
@@ -141,10 +143,13 @@ describe('console skin invariants: every route of every role', () => {
     expect(shells[0]).toContain(spec.cls);
     expect(shells[0]).not.toContain(spec.other);
 
-    // invariant 2: role identity line in the sidebar
-    const sub = container.querySelector('.sidebar .brand-sub');
-    expect(sub).not.toBeNull();
-    expect(sub.textContent.trim()).toBe(spec.sub);
+    // invariant 2: the brand block names the product and the maker, and the role is
+    // still carried by the sidebar's section label
+    const brand = container.querySelector('.sidebar .brand');
+    expect(brand).not.toBeNull();
+    expect(brand.querySelector('.brand-name').textContent.trim()).toBe(spec.name);
+    expect(brand.querySelector('.brand-sub').textContent.trim()).toBe(spec.sub);
+    expect(container.querySelector('.sidebar .nav-section').textContent.trim()).toBe(spec.section);
 
     // invariant 3: nothing rendered on this page carries an emoji glyph
     expect(hasEmoji(container.textContent)).toBe(false);
@@ -183,6 +188,7 @@ describe('console skin invariants: theme independence', () => {
     expect(shells[0]).toContain(spec.cls);
     expect(shells[0]).not.toContain(spec.other);
     expect(container.querySelector('.sidebar .brand-sub').textContent.trim()).toBe(spec.sub);
+    expect(container.querySelector('.sidebar .nav-section').textContent.trim()).toBe(spec.section);
     expect(hasEmoji(container.textContent)).toBe(false);
   });
 });
