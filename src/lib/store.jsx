@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
-import { buildSeed } from './seed.js';
+import { SEED_VERSION, buildSeed } from './seed.js';
 import { addDays, nowIso } from './time.js';
 import {
   apiDeviceToVm, createIotApi,
@@ -998,6 +998,12 @@ function tick(state) {
 
 /* ------------------------------ provider ----------------------------- */
 
+/** Is the account a saved session names still one of the app's own records? */
+function accountExists(state, session) {
+  if (!session || !session.id) return false;
+  return state.admins.some((a) => a.id === session.id) || state.farmers.some((f) => f.id === session.id);
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -1007,12 +1013,26 @@ function loadState() {
       // before the sheet was editable carries none and gets the published one,
       // and the plans on it are always the approved five, however old the
       // catalogue saved alongside them is. See `reconcilePlans`.
-      return {
-        ...saved,
+      const catalogue = {
         sheet: sheetOf(saved.sheet),
         plans: reconcilePlans(saved.plans),
         sheetDraft: reconcileDraft(saved.sheetDraft),
       };
+      // A state saved before the demonstration fleet was removed still carries
+      // it, and no code can reach into a browser's localStorage to take it out.
+      // So a saved state is trusted only when the version that wrote it is the
+      // one this build starts from; anything older is rebuilt from the real
+      // seed, keeping only the price catalogue the console owns. This is what
+      // makes the removal reach a browser that has already used the app.
+      if (saved.version !== SEED_VERSION) {
+        const fresh = { ...buildSeed(), ...catalogue, reminderSent: [] };
+        // Rebuilding the state is not a reason to sign anybody out: a session
+        // naming an account that still exists is the person's own sign-in, not
+        // part of the starting state. One that named a removed demonstration
+        // farmer finds no account and is dropped along with the fleet.
+        return { ...fresh, session: accountExists(fresh, saved.session) ? saved.session : null };
+      }
+      return { ...saved, ...catalogue };
     }
   } catch {
     /* ignore */

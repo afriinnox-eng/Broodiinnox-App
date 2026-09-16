@@ -29,7 +29,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import Icon, { ICON_NAMES } from '../components/icons.jsx';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, sep, resolve } from 'node:path';
@@ -161,7 +161,7 @@ describe('icon set integrity: every glyph renders a real stroke SVG', () => {
 /* ------------------------------------------------------------------ */
 
 function seedWithSession(session) {
-  return { ...buildSeed(), session, lang: 'en', theme: 'light', reminderSent: [] };
+  return { ...buildDemoSeed(), session, lang: 'en', theme: 'light', reminderSent: [] };
 }
 
 function renderApp(initialEntries = ['/']) {

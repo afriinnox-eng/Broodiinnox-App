@@ -26,7 +26,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
-import { ADMINS, FARMERS, TICKETS, buildSeed } from '../lib/seed.js';
+import { ADMINS } from '../lib/seed.js';
+import { FARMERS, TICKETS, buildDemoSeed } from './fixtures/demoFleet.js';
 import { t } from '../i18n/strings.js';
 
 const KEY = 'broodiinnox_app_v1';
@@ -39,7 +40,7 @@ const sessionFor = (admin) => ({ id: admin.id, name: admin.name, role: 'admin', 
 /** Mount the app at a route, signed out unless a session is given. */
 function open(route = '/', session = null) {
   localStorage.clear();
-  localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session, lang: 'en', reminderSent: [] }));
+  localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session, lang: 'en', reminderSent: [] }));
   return render(
     <MemoryRouter initialEntries={[route]}>
       <StoreProvider><App /></StoreProvider>

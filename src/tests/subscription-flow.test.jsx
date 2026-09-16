@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { StoreProvider, useStore } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { generateAlerts, forecastMrr, ALERT_KEYS } from '../lib/services.js';
 import {
   BANDS, TERMS, bandForChicks, bandLabel, coverageFor, deviceBand, planPrice, priceFor,
@@ -37,7 +37,7 @@ function Probe() {
 }
 
 function seedWith(session, mutate) {
-  const seed = mutate ? mutate(JSON.parse(JSON.stringify(buildSeed()))) : buildSeed();
+  const seed = mutate ? mutate(JSON.parse(JSON.stringify(buildDemoSeed()))) : buildDemoSeed();
   localStorage.setItem(KEY, JSON.stringify({ ...seed, session, reminderSent: [] }));
   return seed;
 }
@@ -56,7 +56,7 @@ beforeEach(() => {
 
 describe('INVARIANT: every price is the sheet price for that farm size', () => {
   it('holds for every seeded device, every plan, and the price it was sold at', () => {
-    const { devices } = buildSeed();
+    const { devices } = buildDemoSeed();
     expect(devices.length).toBeGreaterThan(1);
 
     for (const d of devices) {
@@ -73,7 +73,7 @@ describe('INVARIANT: every price is the sheet price for that farm size', () => {
   });
 
   it('holds for every seeded payment too', () => {
-    for (const p of buildSeed().payments) {
+    for (const p of buildDemoSeed().payments) {
       if (p.amount === undefined) continue;
       expect(p.amount, `${p.id}`).toBe(priceFor(bandForChicks(p.farmSize), p.planId));
       expect(bandForChicks(p.farmSize).id).toBe(p.bandId);
@@ -248,7 +248,7 @@ describe('BEHAVIOURAL: a batch is paid for by the plan, and counted against it',
 
   it('raises the shortfall alert exactly when the plan ends before the batch', () => {
     const now = new Date().toISOString();
-    const { devices } = buildSeed();
+    const { devices } = buildDemoSeed();
     const byId = Object.fromEntries(devices.map((d) => [d.id, d]));
 
     // BRD002: a 30-day plan bought 28 days ago, with an 18-day duck batch left.
@@ -271,18 +271,18 @@ describe('BEHAVIOURAL: a batch is paid for by the plan, and counted against it',
 
   it('projects MRR from the price actually paid, not from today\'s sheet', () => {
     const now = new Date().toISOString();
-    const devices = buildSeed().devices;
+    const devices = buildDemoSeed().devices;
     const expected = devices.reduce((sum, d) => {
       const sub = d.subscription;
       if (sub?.status !== 'active' || Date.parse(sub.endDate) <= Date.parse(now)) return sum;
       const days = Math.round((Date.parse(sub.endDate) - Date.parse(sub.startDate)) / 86400000);
       return sum + sub.price / (days / 30);
     }, 0);
-    expect(forecastMrr(devices, buildSeed().plans, now)).toBe(Math.round(expected));
+    expect(forecastMrr(devices, buildDemoSeed().plans, now)).toBe(Math.round(expected));
 
     // an old payment keeps its own price after the sheet changes
     const paid = devices.map((d) => (d.id === 'BRD001' ? { ...d, subscription: { ...d.subscription, price: 1 } } : d));
-    expect(forecastMrr(paid, buildSeed().plans, now)).toBeLessThan(forecastMrr(devices, buildSeed().plans, now));
+    expect(forecastMrr(paid, buildDemoSeed().plans, now)).toBeLessThan(forecastMrr(devices, buildDemoSeed().plans, now));
   });
 });
 

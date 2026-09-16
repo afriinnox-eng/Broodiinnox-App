@@ -26,12 +26,17 @@ black, white) and the Afriinnox–Hanga 2026 business documentation.
 - **Farmers** — sign in with the email address or the phone number they were
   registered with.
 
-There are no demo shortcuts on the login page, and no password is published here:
-what is seeded below is the platform's registered farmers and their systems, not a
-set of test logins.
+There are no demo shortcuts on the login page, and no password is published here.
 
-The app ships with seeded records: 6 farmers, 8 Broodiinnox systems, active/expired
-subscriptions, payments, alerts, tickets, maintenance records and inventory.
+The app ships with no demonstration fleet. What it starts from is the one console
+account, the one farmer the live database has assigned a real system to, and the
+published price list; everything else is empty, and each part fills from the real
+thing — systems from the broodiinnox-api live poll, then payments, alerts, tickets
+and registrations from use. The fleet that used to be seeded here (six farmers and
+eight systems with no unit behind them) is gone from the app and survives only as
+`src/tests/fixtures/demoFleet.js`, which no shipped code imports. `SEED_VERSION` in
+`src/lib/seed.js` is what carries that removal to a browser that has already used
+the app.
 
 > **Mock IoT backend.** There is no physical device or server in this build. A service
 > layer (`src/lib/services.js`) implements the business logic — temperature hysteresis,

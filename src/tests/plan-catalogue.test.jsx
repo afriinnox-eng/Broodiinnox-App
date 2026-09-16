@@ -25,7 +25,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render } from '@testing-library/react';
 import { StoreProvider, useStore } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import {
   BANDS, TERM_IDS, TERMS, approvedPlans, priceFor, publishedSheet, reconcilePlans, sheetBandLabel, sheetBands, sheetPrice,
 } from '../lib/subscriptions.js';
@@ -176,7 +176,7 @@ describe('INVARIANT: the app always runs on the five approved plans', () => {
 
 describe('BEHAVIOURAL: a browser that has been used since an older build', () => {
   it('reloads the approved catalogue, not the three plans that build seeded', () => {
-    const stale = { ...clone(buildSeed()), plans: OLD_PLANS, session: ADMIN, reminderSent: [] };
+    const stale = { ...clone(buildDemoSeed()), plans: OLD_PLANS, session: ADMIN, reminderSent: [] };
     delete stale.sheet;
     localStorage.setItem(KEY, JSON.stringify(stale));
 
@@ -193,7 +193,7 @@ describe('BEHAVIOURAL: a browser that has been used since an older build', () =>
 
   it('leaves a current state exactly as it was', () => {
     const plans = approvedPlans().map((p) => (p.id === 't40d' ? { ...p, name: 'Duck & Turkey Plan' } : p));
-    localStorage.setItem(KEY, JSON.stringify({ ...clone(buildSeed()), plans, session: ADMIN, reminderSent: [] }));
+    localStorage.setItem(KEY, JSON.stringify({ ...clone(buildDemoSeed()), plans, session: ADMIN, reminderSent: [] }));
 
     render(<StoreProvider><Probe /></StoreProvider>);
 
@@ -202,7 +202,7 @@ describe('BEHAVIOURAL: a browser that has been used since an older build', () =>
   });
 
   it('prunes extra plans out of a saved working copy, keeping the prices it holds', () => {
-    const saved = { ...clone(buildSeed()), session: ADMIN, reminderSent: [] };
+    const saved = { ...clone(buildDemoSeed()), session: ADMIN, reminderSent: [] };
     saved.sheetDraft = {
       bands: saved.sheet.bands.map((b) => (b.id === 'b06' ? { ...b, prices: { ...b.prices, t30d: 60000 } } : { ...b })),
       plans: [...approvedPlans(), ...EXTRA_PLANS],
@@ -230,7 +230,7 @@ describe('FUNCTIONAL: the admin console on a stale state', () => {
 
   it('shows all five plans as columns, priced in RWF on every farm size', async () => {
     const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
-    const stale = { ...clone(buildSeed()), plans: OLD_PLANS, session: ADMIN, reminderSent: [] };
+    const stale = { ...clone(buildDemoSeed()), plans: OLD_PLANS, session: ADMIN, reminderSent: [] };
     delete stale.sheet;
     localStorage.setItem(KEY, JSON.stringify(stale));
 
@@ -260,7 +260,7 @@ describe('FUNCTIONAL: the admin console on a stale state', () => {
 
   it('shows five columns and not one more, on a catalogue carrying three extra plans', async () => {
     const { default: AdminSubscriptions } = await import('../pages/admin/Subscriptions.jsx');
-    const extras = { ...clone(buildSeed()), plans: [...approvedPlans(), ...EXTRA_PLANS], session: ADMIN, reminderSent: [] };
+    const extras = { ...clone(buildDemoSeed()), plans: [...approvedPlans(), ...EXTRA_PLANS], session: ADMIN, reminderSent: [] };
     localStorage.setItem(KEY, JSON.stringify(extras));
 
     const out = render(

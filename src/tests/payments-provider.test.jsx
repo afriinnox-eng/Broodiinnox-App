@@ -137,10 +137,10 @@ beforeEach(async () => {
   // (it is read from import.meta.env once per module load).
   pay = await import('../lib/payments.js');
   const store = await import('../lib/store.jsx');
-  const seed = await import('../lib/seed.js');
+  const seed = await import('./fixtures/demoFleet.js');
   StoreProvider = store.StoreProvider;
   useStore = store.useStore;
-  buildSeed = seed.buildSeed;
+  buildSeed = seed.buildDemoSeed;
 });
 
 afterEach(() => {

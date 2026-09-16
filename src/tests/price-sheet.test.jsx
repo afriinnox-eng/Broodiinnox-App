@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render } from '@testing-library/react';
 import { StoreProvider, useStore } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import {
   BANDS, MAX_PRICE, TERMS, bandForChicks, draftError, publishedSheet, sheetBandLabel, sheetBands,
   sheetChanges, sheetPrice, sheetWithPrice,
@@ -40,14 +40,14 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
 
 /** A mounted store with the session, and optionally an already-published change. */
 function mount(session, edit) {
-  const seed = clone(buildSeed());
+  const seed = clone(buildDemoSeed());
   if (edit) seed.sheet = edit(seed.sheet, seed);
   localStorage.setItem(KEY, JSON.stringify({ ...seed, session, reminderSent: [] }));
   return render(<StoreProvider><Probe /></StoreProvider>);
 }
 
 function mountPage(Component, session, path = '/') {
-  const seed = clone(buildSeed());
+  const seed = clone(buildDemoSeed());
   localStorage.setItem(KEY, JSON.stringify({ ...seed, session, reminderSent: [] }));
   return render(
     <StoreProvider>
@@ -102,12 +102,12 @@ const notificationsFor = (farmerId) => probe.state.notifications.filter((n) => n
 const noticesFor = (farmerId) => notificationsFor(farmerId).filter((n) => n.title === 'Price list updated');
 
 /** The published list as the store holds it: the printed bands, and the app's plans. */
-const publishedList = () => ({ bands: publishedSheet().bands, plans: clone(buildSeed().plans) });
+const publishedList = () => ({ bands: publishedSheet().bands, plans: clone(buildDemoSeed().plans) });
 
 /** The farmers the seed says hold a given plan. */
-const holdersOf = (planId) => [...new Set(buildSeed().devices.filter((d) => d.subscription?.planId === planId).map((d) => d.farmerId))];
+const holdersOf = (planId) => [...new Set(buildDemoSeed().devices.filter((d) => d.subscription?.planId === planId).map((d) => d.farmerId))];
 /** The farmers holding a given plan on a given farm size. */
-const holdersOfBand = (planId, bandId) => [...new Set(buildSeed().devices
+const holdersOfBand = (planId, bandId) => [...new Set(buildDemoSeed().devices
   .filter((d) => d.subscription?.planId === planId && bandForChicks(d.farmSize)?.id === bandId)
   .map((d) => d.farmerId))];
 
@@ -216,7 +216,7 @@ describe('INVARIANT: a save changes nothing it cannot justify', () => {
     await discard();
     expect(JSON.stringify(probe.state.sheet)).toBe(before);
     expect(probe.state.sheetDraft ?? null).toBeNull();
-    expect(probe.state.notifications).toHaveLength(buildSeed().notifications.length);
+    expect(probe.state.notifications).toHaveLength(buildDemoSeed().notifications.length);
   });
 
   it('needs a saved list before it will publish or discard one', async () => {
@@ -325,7 +325,7 @@ describe('BEHAVIOURAL: publishing notifies the farmers it concerns', () => {
 
     const holders = holdersOf('t30d');
     expect(holders.length).toBeGreaterThan(0);
-    const others = [...new Set(buildSeed().devices.map((d) => d.farmerId))].filter((f) => !holders.includes(f));
+    const others = [...new Set(buildDemoSeed().devices.map((d) => d.farmerId))].filter((f) => !holders.includes(f));
     for (const farmerId of holders) {
       const mine = noticesFor(farmerId);
       expect(mine).toHaveLength(1);
@@ -359,7 +359,7 @@ describe('BEHAVIOURAL: publishing notifies the farmers it concerns', () => {
     mount(ADMIN);
     await save((w) => setLabel(w, 'b01', 'Starter flock (up to 599)'));
     await publish();
-    const inBand = [...new Set(buildSeed().devices.filter((d) => bandForChicks(d.farmSize)?.id === 'b01').map((d) => d.farmerId))];
+    const inBand = [...new Set(buildDemoSeed().devices.filter((d) => bandForChicks(d.farmSize)?.id === 'b01').map((d) => d.farmerId))];
     expect(inBand.length).toBeGreaterThan(0);
     for (const farmerId of inBand) {
       expect(noticesFor(farmerId)[0]?.body).toMatch(/the farm size "Up to 599 chicks" is now called "Starter flock \(up to 599\)"/);
@@ -374,7 +374,7 @@ describe('BEHAVIOURAL: publishing notifies the farmers it concerns', () => {
     expect(sheetChanges({ bands: probe.state.sheet.bands, plans: probe.state.plans }, probe.state.sheetDraft)).toEqual([]);
     await publish();
     expect(noticesFor('f1')).toHaveLength(0);
-    expect(probe.state.notifications).toHaveLength(buildSeed().notifications.length);
+    expect(probe.state.notifications).toHaveLength(buildDemoSeed().notifications.length);
 
     await save((w) => setPrice(w, 'b06', 't30d', 60000));
     await discard();

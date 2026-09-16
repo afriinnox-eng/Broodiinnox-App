@@ -11,13 +11,13 @@ import { HashRouter } from 'react-router-dom';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider, useStore } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { ANIMALS } from '../lib/presets.js';
 
 const KEY = 'broodiinnox_app_v1';
 
 function seedWithSession(session) {
-  return { ...buildSeed(), session, reminderSent: [] };
+  return { ...buildDemoSeed(), session, reminderSent: [] };
 }
 
 function renderApp(hash) {

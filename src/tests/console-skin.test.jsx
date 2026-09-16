@@ -41,7 +41,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { t } from '../i18n/strings.js';
 
 const KEY = 'broodiinnox_app_v1';
@@ -101,7 +101,7 @@ const SHELL = {
 };
 
 function seedWith(session, theme = 'light') {
-  return { ...buildSeed(), session, lang: 'en', theme, reminderSent: [] };
+  return { ...buildDemoSeed(), session, lang: 'en', theme, reminderSent: [] };
 }
 
 function renderApp(initialPath, session, theme = 'light') {

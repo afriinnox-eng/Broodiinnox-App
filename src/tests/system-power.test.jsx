@@ -29,7 +29,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider, useStore } from '../lib/store.jsx';
 import { deviceMode } from '../lib/live.js';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { generateAlerts } from '../lib/services.js';
 
 const KEY = 'broodiinnox_app_v1';
@@ -46,7 +46,7 @@ function Probe() {
 }
 
 function renderApp(hash, session, mutateSeed) {
-  const seed = mutateSeed ? mutateSeed(buildSeed()) : buildSeed();
+  const seed = mutateSeed ? mutateSeed(buildDemoSeed()) : buildDemoSeed();
   localStorage.setItem(KEY, JSON.stringify({ ...seed, session, reminderSent: [] }));
   window.location.hash = hash;
   return render(
@@ -103,7 +103,7 @@ describe('every system carries both controls', () => {
 
   it('the supervisor sees one of each per system, and a locked one is disabled entirely', () => {
     const { container } = renderApp('#/admin/devices', ADMIN);
-    expect(container.querySelectorAll('[role="switch"]').length).toBe(buildSeed().devices.length);
+    expect(container.querySelectorAll('[role="switch"]').length).toBe(buildDemoSeed().devices.length);
 
     // Locked = lapsed subscription: the firmware silently drops relay commands,
     // so both controls are refused up front instead of quietly doing nothing.

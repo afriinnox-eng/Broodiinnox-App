@@ -71,10 +71,10 @@ beforeEach(async () => {
   }));
   // Dynamic import AFTER the env stub so liveConfig resolves enabled:true.
   const store = await import('../lib/store.jsx');
-  const seed = await import('../lib/seed.js');
+  const seed = await import('./fixtures/demoFleet.js');
   StoreProvider = store.StoreProvider;
   useStore = store.useStore;
-  buildSeed = seed.buildSeed;
+  buildSeed = seed.buildDemoSeed;
 });
 
 afterEach(() => {

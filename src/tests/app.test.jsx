@@ -8,16 +8,23 @@ import { HashRouter, MemoryRouter } from 'react-router-dom';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider, useStore } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { subscriptionState } from '../lib/services.js';
 
 const KEY = 'broodiinnox_app_v1';
 
-const harness = () =>
-  renderHook(() => useStore(), { wrapper: ({ children }) => <StoreProvider>{children}</StoreProvider> });
+/**
+ * The store on a populated platform. These flows are about a farmer's own
+ * systems, so they need the demonstration fixture: the app's real starting
+ * state carries no systems at all (every real unit arrives from the API).
+ */
+const harness = () => {
+  localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session: null, reminderSent: [] }));
+  return renderHook(() => useStore(), { wrapper: ({ children }) => <StoreProvider>{children}</StoreProvider> });
+};
 
 function seedWithSession(session) {
-  return { ...buildSeed(), session, lang: 'en', theme: 'light', reminderSent: [] };
+  return { ...buildDemoSeed(), session, lang: 'en', theme: 'light', reminderSent: [] };
 }
 
 function renderApp(initialEntries = ['/']) {
@@ -87,6 +94,9 @@ describe('login & roles', () => {
   });
 
   it('logs in as a registered farmer and shows the dashboard with system cards', async () => {
+    // a registered farmer with systems: the fixture, since the app's own
+    // starting state has none — signed out, so the form is what signs them in
+    localStorage.setItem(KEY, JSON.stringify(seedWithSession(null)));
     const { container } = renderApp();
     // the way in is the form itself: there is no demo shortcut to press
     fireEvent.change(container.querySelector('#login-id'), { target: { value: '0788123456' } });

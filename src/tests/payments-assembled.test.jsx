@@ -55,7 +55,7 @@ beforeEach(async () => {
 
   App = (await import('../App.jsx')).default;
   ({ StoreProvider } = await import('../lib/store.jsx'));
-  ({ buildSeed } = await import('../lib/seed.js'));
+  ({ buildDemoSeed: buildSeed } = await import('./fixtures/demoFleet.js'));
   localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session: FARMER, lang: 'en', reminderSent: [] }));
 });
 

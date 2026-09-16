@@ -264,10 +264,10 @@ describe('FUNCTIONAL: the selector and the switch on a real page', () => {
     // Simulation mode: no VITE_IOT_API_URL, so the seeded fleet is local state
     // and the store applies the selection without a unit in the loop.
     const store = await import('../lib/store.jsx');
-    const seed = await import('../lib/seed.js');
+    const seed = await import('./fixtures/demoFleet.js');
     StoreProvider = store.StoreProvider;
     useStore = store.useStore;
-    buildSeed = seed.buildSeed;
+    buildSeed = seed.buildDemoSeed;
     PowerSwitch = (await import('../components/PowerSwitch.jsx')).PowerSwitch;
     localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session: FARMER, reminderSent: [] }));
   });

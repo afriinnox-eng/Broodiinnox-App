@@ -34,7 +34,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { LANGS, t } from '../i18n/strings.js';
 import brandIcon from '../assets/afriinnox-icon.png';
 
@@ -46,7 +46,7 @@ const SESSIONS = {
 };
 
 function renderApp(initialPath, session) {
-  localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session, lang: 'en', theme: 'light', reminderSent: [] }));
+  localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session, lang: 'en', theme: 'light', reminderSent: [] }));
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <StoreProvider>

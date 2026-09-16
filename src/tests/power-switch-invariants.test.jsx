@@ -79,11 +79,11 @@ beforeEach(async () => {
     return jsonResponse({ ok: true });
   }));
   const store = await import('../lib/store.jsx');
-  const seed = await import('../lib/seed.js');
+  const seed = await import('./fixtures/demoFleet.js');
   const iot = await import('../lib/iot.js');
   const live = await import('../lib/live.js');
   StoreProvider = store.StoreProvider;
-  buildSeed = seed.buildSeed;
+  buildSeed = seed.buildDemoSeed;
   apiDeviceToVm = iot.apiDeviceToVm;
   storeDeviceFromVm = live.storeDeviceFromVm;
   PowerSwitch = (await import('../components/PowerSwitch.jsx')).PowerSwitch;

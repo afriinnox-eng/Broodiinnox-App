@@ -21,7 +21,7 @@ import { fireEvent, render } from '@testing-library/react';
 import { HashRouter, MemoryRouter } from 'react-router-dom';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 
 const KEY = 'broodiinnox_app_v1';
 const FARMER_ACCOUNT = {
@@ -36,7 +36,7 @@ let reply = () => ({ status: 500, body: {} });
 function boot({ configured = true, hash = '#/' } = {}) {
   calls = [];
   localStorage.clear();
-  localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session: null, lang: 'en', reminderSent: [] }));
+  localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session: null, lang: 'en', reminderSent: [] }));
   window.location.hash = hash;
   vi.unstubAllEnvs();
   if (configured) vi.stubEnv('VITE_IOT_API_URL', 'https://api.test');
@@ -264,7 +264,7 @@ describe('the reset screen the emailed link opens', () => {
   const openLink = (search) => {
     calls = [];
     localStorage.clear();
-    localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session: null, lang: 'en', reminderSent: [] }));
+    localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session: null, lang: 'en', reminderSent: [] }));
     vi.unstubAllEnvs();
     vi.stubEnv('VITE_IOT_API_URL', 'https://api.test');
     vi.stubGlobal('fetch', vi.fn(async (url, opts = {}) => {
@@ -350,7 +350,7 @@ describe('the reset screen the emailed link opens', () => {
 
   it('refuses to post when the app has no server to post to', async () => {
     localStorage.clear();
-    localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session: null, lang: 'en', reminderSent: [] }));
+    localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session: null, lang: 'en', reminderSent: [] }));
     vi.unstubAllEnvs();
     calls = [];
     vi.stubGlobal('fetch', vi.fn(async (url) => { calls.push({ url: String(url) }); throw new Error('no server'); }));

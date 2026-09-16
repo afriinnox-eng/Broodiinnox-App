@@ -30,7 +30,7 @@ import { fireEvent, render } from '@testing-library/react';
 import { HashRouter } from 'react-router-dom';
 import App from '../App.jsx';
 import { StoreProvider } from '../lib/store.jsx';
-import { buildSeed } from '../lib/seed.js';
+import { buildDemoSeed } from './fixtures/demoFleet.js';
 import { t } from '../i18n/strings.js';
 
 const KEY = 'broodiinnox_app_v1';
@@ -38,7 +38,7 @@ const KEY = 'broodiinnox_app_v1';
 /** The assembled screen, signed out - the home screen a phone lands on. */
 function renderHome() {
   localStorage.clear();
-  localStorage.setItem(KEY, JSON.stringify({ ...buildSeed(), session: null, lang: 'en', reminderSent: [] }));
+  localStorage.setItem(KEY, JSON.stringify({ ...buildDemoSeed(), session: null, lang: 'en', reminderSent: [] }));
   window.location.hash = '#/';
   return render(<HashRouter><StoreProvider><App /></StoreProvider></HashRouter>);
 }
