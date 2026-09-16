@@ -846,11 +846,38 @@ function reducer(state, action) {
         { user: state.session?.name, role: state.session?.role, action: 'admin.create', details: `Created admin ${action.admin.name} (${action.admin.role})` }
       );
 
-    case 'UPDATE_ADMIN':
+    /*
+     * A console account's own details — its name, and the address and number it
+     * signs in with. Same two rules as a farmer's (see UPDATE_FARMER above): the
+     * id and the creation date are dropped rather than applied, and the audit
+     * names the fields that actually changed. The session itself is refreshed
+     * when the edited account is the one signed in, so the sidebar does not go on
+     * naming the old address.
+     */
+    case 'UPDATE_ADMIN': {
+      const admin = state.admins.find((a) => a.id === action.id);
+      if (!admin) return state;
+      const patch = { ...(action.patch || {}) };
+      delete patch.id;
+      delete patch.createdAt;
+      const next = { ...admin, ...patch };
+      const changed = Object.keys(patch).filter((k) => JSON.stringify(admin[k] ?? null) !== JSON.stringify(next[k] ?? null));
+      if (!changed.length) return state;
+      const session = state.session && state.session.id === admin.id
+        ? { ...state.session, name: next.name ?? state.session.name, email: next.email ?? state.session.email, adminRole: next.role ?? state.session.adminRole }
+        : state.session;
       return withAudit(
-        { ...state, admins: state.admins.map((a) => (a.id === action.id ? { ...a, ...action.patch } : a)) },
-        { user: state.session?.name, role: state.session?.role, action: 'admin.update', details: `Updated admin ${action.id}` }
+        { ...state, session, admins: state.admins.map((a) => (a.id === admin.id ? next : a)) },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: 'admin.update',
+          details: `${admin.name}: ${changed.map((k) => `${k} → ${brief(next[k])}`).join(', ')}`,
+          prev: Object.fromEntries(changed.map((k) => [k, admin[k] ?? null])),
+          next: Object.fromEntries(changed.map((k) => [k, next[k] ?? null])),
+        }
       );
+    }
 
     case 'MAINTENANCE_UPDATE':
       return withAudit(

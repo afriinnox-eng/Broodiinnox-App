@@ -298,13 +298,16 @@ describe('login: the identifier decides which shell you land in', () => {
   });
 
   it.each([
-    ['an email nobody registered', 'stranger@example.com'],
-    ['a phone number nobody registered', '0700000000'],
-    ['nothing at all', ''],
-  ])('%s signs nobody in', (_case, identifier) => {
+    ['an email nobody registered', 'stranger@example.com', 'login.notRegistered'],
+    ['a phone number nobody registered', '0700000000', 'login.notRegisteredPhone'],
+    ['a number in the shape a phone hands over', '+250 700 000 000', 'login.notRegisteredPhone'],
+    ['nothing at all', '', 'login.notRegistered'],
+  ])('%s signs nobody in', (_case, identifier, copy) => {
     const container = signInAs(identifier);
     expect(container.querySelector('.app-shell'), 'no shell may open').toBeNull();
-    expect(screen.getByRole('alert').textContent.trim()).toBe(t('login.notRegistered', 'en'));
+    // the refusal says which kind of identifier a console account uses when a
+    // NUMBER is what was typed, and the ordinary sentence otherwise
+    expect(screen.getByRole('alert').textContent.trim()).toBe(t(copy, 'en'));
   });
 
   it('offers one accent on the sign-in button, and no role tab to colour', () => {

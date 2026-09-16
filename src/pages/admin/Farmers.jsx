@@ -145,7 +145,15 @@ export default function AdminFarmers() {
       })()}
 
       {editOpen && selected && (
-        <EditFarmerModal farmer={selected} farmers={state.farmers} dispatch={dispatch} onClose={() => setEditOpen(false)} />
+        <EditFarmerModal
+          farmer={selected}
+          /* every account that signs in, not just the farmers: an identifier has
+             to be unique across the console accounts too (see the rule in
+             farmerDetailIssues) */
+          accounts={[...state.farmers, ...state.admins]}
+          dispatch={dispatch}
+          onClose={() => setEditOpen(false)}
+        />
       )}
 
       {addOpen && <AddFarmerModal dispatch={dispatch} onClose={() => setAddOpen(false)} />}
@@ -162,7 +170,7 @@ export default function AdminFarmers() {
  * auth.js signs someone in by matching exactly them, so two farmers holding one
  * address would mean the second to type it lands in the first one's account.
  */
-function EditFarmerModal({ farmer, farmers, dispatch, onClose }) {
+function EditFarmerModal({ farmer, accounts, dispatch, onClose }) {
   const [form, setForm] = useState({
     name: farmer.name || '',
     phone: farmer.phone || '',
@@ -171,7 +179,7 @@ function EditFarmerModal({ farmer, farmers, dispatch, onClose }) {
     sector: farmer.sector || '',
   });
   const [tried, setTried] = useState(false);
-  const issues = farmerDetailIssues({ patch: form, farmers, selfId: farmer.id });
+  const issues = farmerDetailIssues({ patch: form, farmers: accounts, selfId: farmer.id });
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
 
   const save = () => {

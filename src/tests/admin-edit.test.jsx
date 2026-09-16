@@ -107,14 +107,14 @@ describe('INVARIANT: one farmer per sign-in identifier', () => {
   it('refuses a number another farmer already signs in with, however it is typed', () => {
     for (const phone of ['0788222333', '0788 222 333', '0788-222-333', '+250788222333', '250788222333']) {
       const issues = farmerDetailIssues({ patch: { name: 'Jean', phone, email: '' }, farmers: others });
-      expect(issues.phone, phone).toMatch(/already signs in another farmer/);
+      expect(issues.phone, phone).toMatch(/already signs in another account/);
     }
   });
 
   it('treats an email address as one address whatever its case or padding', () => {
     for (const email of ['CLARISSE@FARM.RW', '  Clarisse@Farm.RW  ', 'clarisse@farm.rw']) {
       const issues = farmerDetailIssues({ patch: { name: 'Jean', phone: '', email }, farmers: others });
-      expect(issues.email, email).toMatch(/already signs in another farmer/);
+      expect(issues.email, email).toMatch(/already signs in another account/);
     }
     // and the address is not magic when it belongs to nobody
     expect(farmerDetailIssues({ patch: { name: 'Jean', phone: '', email: 'nobody@farm.rw' }, farmers: others })).toEqual({});
@@ -381,7 +381,7 @@ describe('BEHAVIOURAL: the console edits a farmer', () => {
 
     const alert = container.querySelector('[role="alert"]');
     expect(alert, 'the console says why instead of silently doing nothing').not.toBeNull();
-    expect(alert.textContent).toMatch(/already signs in another farmer/i);
+    expect(alert.textContent).toMatch(/already signs in another account/i);
     expect(probe.state.farmers.find((f) => f.id === 'f1').phone, 'nothing was written').toBe('0788123456');
     expect(probe.state.audit).toHaveLength(auditBefore);
     expect(container.querySelector('.modal'), 'the form stays open so it can be corrected').not.toBeNull();

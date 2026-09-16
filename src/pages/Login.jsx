@@ -3,7 +3,7 @@ import { useStore } from '../lib/store.jsx';
 import { LANGS, t } from '../i18n/strings.js';
 import { Icon } from '../components/icons.jsx';
 import {
-  authApiFor, CODE_LENGTH, maskEmail, sessionFromAccount, validateCode,
+  authApiFor, CODE_LENGTH, maskEmail, phoneKey, sessionFromAccount, validateCode,
 } from '../lib/auth.js';
 import brandIcon from '../assets/afriinnox-icon.png';
 
@@ -89,19 +89,28 @@ export default function Login() {
   /* Who someone is comes from the registration, not from a choice on this screen. The
      Super Admin registers every account, so the identifier they were given - an email
      or a phone number - is what decides which shell they land in, a farmer's or the
-     console's. An identifier nobody registered signs nobody in. */
+     console's. An identifier nobody registered signs nobody in.
+
+     A NUMBER IS COMPARED THROUGH phoneKey - the canonical rule auth.js and
+     broodiinnox-api both use - and not by stripping a space or two. That is the
+     difference that made signing in impossible from a phone: a keypad, a contact
+     card or an autofill hands over "+250 788 123 456" or "0788-123-456", while the
+     account was registered as "0788123456". Those are one identifier, and every
+     shape of it has to find the account. */
   const lookup = (raw) => {
     const typed = raw.trim();
     if (!typed) return null;
     const byEmail = typed.includes('@');
-    const phone = typed.replace(/[\s-]/g, '');
+    const email = typed.toLowerCase();
+    const key = byEmail ? '' : phoneKey(typed);
+    if (!byEmail && !key) return null; // no digits: nothing a number could match
     const farmer = state.farmers.find((f) => (byEmail
-      ? (f.email || '').toLowerCase() === typed.toLowerCase()
-      : f.phone === phone));
+      ? (f.email || '').toLowerCase() === email
+      : phoneKey(f.phone) === key));
     if (farmer) return { id: farmer.id, name: farmer.name, role: 'farmer', phone: farmer.phone, email: farmer.email };
     const admin = state.admins.find((a) => (byEmail
-      ? a.email.toLowerCase() === typed.toLowerCase()
-      : (a.phone || '').replace(/[\s-]/g, '') === phone));
+      ? (a.email || '').toLowerCase() === email
+      : phoneKey(a.phone) === key));
     if (admin) return { id: admin.id, name: admin.name, role: 'admin', adminRole: admin.role, email: admin.email, phone: admin.phone };
     return null;
   };
@@ -114,7 +123,18 @@ export default function Login() {
     e.preventDefault();
     if (busy) return;
     const account = lookup(id);
-    if (!account) return setError(t('login.notRegistered', lang));
+    if (!account) {
+      /* Nobody holds that identifier. Which sentence is said depends only on the
+         SHAPE of what was typed, never on who exists: a NUMBER that matches no
+         account is told that console accounts sign in with their email, which is
+         the difference between "you cannot get in" and "you used the wrong kind
+         of identifier". A value that is not a number gets the ordinary sentence -
+         telling someone their typing is a number when it is not is its own kind
+         of unhelpful. */
+      const typed = String(id).trim();
+      const looksLikeNumber = !typed.includes('@') && phoneKey(typed) !== '';
+      return setError(t(looksLikeNumber ? 'login.notRegisteredPhone' : 'login.notRegistered', lang));
+    }
     setError('');
     if (!api) return doLogin(account);
 

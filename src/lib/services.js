@@ -31,22 +31,28 @@ export function uid(prefix = 'id') {
 /* ---------------------- details the console edits ---------------------- */
 
 /**
- * What is wrong with a farmer's details, if anything — `{}` when they are usable.
+ * What is wrong with an account's sign-in details, if anything — `{}` when they
+ * are usable.
  *
- * A farmer's phone number and email address are not only contact details: they
- * ARE how that farmer signs in (auth.js matches an identifier by email, or by
- * the canonical digits of the phone). So two farmers may not share either one,
+ * An account's phone number and email address are not only contact details: they
+ * ARE how that account signs in (auth.js matches an identifier by email, or by
+ * the canonical digits of the phone). So two accounts may not share either one,
  * or the next person to type that address lands in the other one's account.
- * That is the rule enforced here, and it is why the check is a pure function
- * rather than a line in a form: it has to hold wherever details are written.
  *
- * `selfId` is the farmer being edited, so their own unchanged phone or email
+ * `farmers` is therefore every account that can sign in — the registered farmers
+ * and the console's own accounts TOGETHER, not one list at a time. The sign-in screen
+ * resolves a farmer first and a console account second, so an identifier held by
+ * both would silently be the farmer's, and an identifier held by two console
+ * accounts would silently be whichever came first in the list. One identifier,
+ * one account, whichever kind holds it.
+ *
+ * `selfId` is the account being edited, so their own unchanged phone or email
  * does not collide with itself. A phone or an email may be cleared, but not
- * both — one identifier has to survive, or nobody can sign in as this farmer.
+ * both — one identifier has to survive, or nobody can sign in as this account.
  */
 export function farmerDetailIssues({ patch = {}, farmers = [], selfId = null } = {}) {
   const issues = {};
-  const others = (farmers || []).filter((f) => f && f.id !== selfId);
+  const others = (farmers || []).filter((a) => a && a.id !== selfId);
 
   const name = String(patch.name ?? '').trim();
   if (!name) issues.name = 'A farmer needs a name.';
@@ -57,14 +63,14 @@ export function farmerDetailIssues({ patch = {}, farmers = [], selfId = null } =
   if (digits && phone.length !== 9) {
     issues.phone = 'A Rwandan mobile number is 07… — ten digits, or nine without the leading zero.';
   } else if (phone && others.some((f) => phoneKey(f.phone) === phone)) {
-    issues.phone = 'That phone number already signs in another farmer.';
+    issues.phone = 'That phone number already signs in another account.';
   }
 
   const email = String(patch.email ?? '').trim().toLowerCase();
   if (email && !EMAIL_RE.test(email)) {
     issues.email = 'That is not an email address.';
   } else if (email && others.some((f) => String(f.email || '').trim().toLowerCase() === email)) {
-    issues.email = 'That email address already signs in another farmer.';
+    issues.email = 'That email address already signs in another account.';
   }
 
   if (!phone && !email && !issues.phone && !issues.email) {
