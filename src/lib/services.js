@@ -6,6 +6,10 @@
 import { ANIMALS } from './presets.js';
 import { DAY_MS, diffDays, daysUntil, fmtDate, startOfDay } from './time.js';
 import { coverageFor, termById } from './subscriptions.js';
+import { phoneKey } from './auth.js';
+
+/** An address we are willing to store on a farmer: one '@', a dotted domain, no spaces. */
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export const DEVICE_STATUS = { ONLINE: 'online', OFFLINE: 'offline', WARNING: 'warning', CRITICAL: 'critical', LOCKED: 'locked' };
 export const SEVERITY = { CRITICAL: 'critical', WARNING: 'warning', INFO: 'info' };
@@ -22,6 +26,67 @@ let seq = 0;
 export function uid(prefix = 'id') {
   seq += 1;
   return `${prefix}_${Date.now().toString(36)}${seq.toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`;
+}
+
+/* ---------------------- details the console edits ---------------------- */
+
+/**
+ * What is wrong with a farmer's details, if anything — `{}` when they are usable.
+ *
+ * A farmer's phone number and email address are not only contact details: they
+ * ARE how that farmer signs in (auth.js matches an identifier by email, or by
+ * the canonical digits of the phone). So two farmers may not share either one,
+ * or the next person to type that address lands in the other one's account.
+ * That is the rule enforced here, and it is why the check is a pure function
+ * rather than a line in a form: it has to hold wherever details are written.
+ *
+ * `selfId` is the farmer being edited, so their own unchanged phone or email
+ * does not collide with itself. A phone or an email may be cleared, but not
+ * both — one identifier has to survive, or nobody can sign in as this farmer.
+ */
+export function farmerDetailIssues({ patch = {}, farmers = [], selfId = null } = {}) {
+  const issues = {};
+  const others = (farmers || []).filter((f) => f && f.id !== selfId);
+
+  const name = String(patch.name ?? '').trim();
+  if (!name) issues.name = 'A farmer needs a name.';
+
+  const typed = String(patch.phone ?? '');
+  const digits = typed.replace(/\D/g, '');
+  const phone = digits ? phoneKey(typed) : '';
+  if (digits && phone.length !== 9) {
+    issues.phone = 'A Rwandan mobile number is 07… — ten digits, or nine without the leading zero.';
+  } else if (phone && others.some((f) => phoneKey(f.phone) === phone)) {
+    issues.phone = 'That phone number already signs in another farmer.';
+  }
+
+  const email = String(patch.email ?? '').trim().toLowerCase();
+  if (email && !EMAIL_RE.test(email)) {
+    issues.email = 'That is not an email address.';
+  } else if (email && others.some((f) => String(f.email || '').trim().toLowerCase() === email)) {
+    issues.email = 'That email address already signs in another farmer.';
+  }
+
+  if (!phone && !email && !issues.phone && !issues.email) {
+    issues.identifier = 'A farmer needs a phone number or an email address — that is how they sign in.';
+  }
+
+  return issues;
+}
+
+/**
+ * What is wrong with a system's details, if anything — `{}` when they are usable.
+ *
+ * The serial is the hardware's own identity and is not editable here; the name
+ * and the district are what an operator reads on a card and searches by, so an
+ * empty one is not a detail, it is a hole in the fleet list.
+ */
+export function deviceDetailIssues({ patch = {} } = {}) {
+  const issues = {};
+  if (!String(patch.name ?? '').trim()) issues.name = 'A system needs a name.';
+  const district = String(patch.location?.district ?? '').trim();
+  if (!district || district === '—') issues.district = 'A district is required.';
+  return issues;
 }
 
 /* ------------------------------ batches ------------------------------ */

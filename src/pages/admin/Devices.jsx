@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../lib/store.jsx';
-import { deviceStatus, avgTemp } from '../../lib/services.js';
+import { deviceDetailIssues, deviceStatus, avgTemp } from '../../lib/services.js';
 import { Badge, Btn, Card, DataTable, Field, Modal, StatusBadge } from '../../components/ui.jsx';
 import { PowerSwitch } from '../../components/PowerSwitch.jsx';
 import {
@@ -74,7 +74,7 @@ export default function AdminDevices() {
       />
 
       {selected && (
-        <DeviceDetail device={selected} farmerName={farmerName(selected.farmerId)} onClose={() => navigate('/admin/devices')}
+        <DeviceDetail device={selected} farmerName={farmerName(selected.farmerId)} farmers={state.farmers} onClose={() => navigate('/admin/devices')}
           dispatch={dispatch} plans={state.plans} sheet={state.sheet} maintenance={state.maintenance} now={now} lang={lang} />
       )}
 
@@ -83,17 +83,41 @@ export default function AdminDevices() {
   );
 }
 
-function DeviceDetail({ device, farmerName, onClose, dispatch, plans, sheet, maintenance, now, lang }) {
+function DeviceDetail({ device, farmerName, farmers, onClose, dispatch, plans, sheet, maintenance, now, lang }) {
   const avg = avgTemp(device.sensors);
   const maint = maintenance.find((m) => m.deviceId === device.id);
+  const [editOpen, setEditOpen] = useState(false);
+
+  /* The owner is a decision the console makes, and "nobody" is one of them: the
+     unit keeps its registration and its telemetry, it simply belongs to no
+     farmer until one is chosen. */
+  const assign = (farmerId) => {
+    const to = farmerId ? farmers.find((f) => f.id === farmerId) : null;
+    dispatch({ type: 'ASSIGN_DEVICE', deviceId: device.id, farmerId: to ? to.id : null });
+    dispatch({
+      type: 'TOAST',
+      msg: to ? `${device.serial} moved to ${to.name}.` : `${device.serial} is no longer assigned to any farmer.`,
+    });
+  };
   return (
     <Card title={`${device.serial} — ${device.name}`} style={{ marginTop: 16 }} actions={<Btn small onClick={onClose}>Close</Btn>}>
       <div className="grid cols-3">
         <div>
           <div className="muted small">Farmer</div>
-          <b>{farmerName}</b>
+          <select
+            className="field"
+            style={{ marginBottom: 0 }}
+            aria-label={`Owner of ${device.serial}`}
+            value={device.farmerId || ''}
+            onChange={(e) => assign(e.target.value)}
+          >
+            <option value="">— Unassigned —</option>
+            {farmers.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+          {!device.farmerId && <div className="muted small" style={{ marginTop: 4 }}>No farmer sees this system. It is still registered and still reporting.</div>}
           <div className="muted small" style={{ marginTop: 8 }}>Location</div>
           <div>{device.location?.district}, {device.location?.sector} <span className="muted small">({device.location?.lat}, {device.location?.lng})</span></div>
+          <div style={{ marginTop: 6 }}><Btn small onClick={() => setEditOpen(true)}>Edit name and location</Btn></div>
           <div className="muted small" style={{ marginTop: 8 }}>Installed</div>
           <div>{fmtDate(device.installedAt)} · firmware {device.firmware}</div>
           <div className="muted small" style={{ marginTop: 8 }}>Farm size — max chicks brooded at once</div>
@@ -132,7 +156,59 @@ function DeviceDetail({ device, farmerName, onClose, dispatch, plans, sheet, mai
           )}
         </div>
       </div>
+
+      {editOpen && (
+        <EditDeviceModal device={device} dispatch={dispatch} onClose={() => setEditOpen(false)} />
+      )}
     </Card>
+  );
+}
+
+/**
+ * A system's own details, after it was registered: what it is called and where it
+ * sits. The serial is NOT editable - it is the hardware's identity, it is the
+ * record's id, and broodiinnox-api keys the device on it.
+ */
+function EditDeviceModal({ device, dispatch, onClose }) {
+  const [form, setForm] = useState({
+    name: device.name || '',
+    district: device.location?.district && device.location.district !== '—' ? device.location.district : '',
+    sector: device.location?.sector && device.location.sector !== '—' ? device.location.sector : '',
+  });
+  const [tried, setTried] = useState(false);
+  const issues = deviceDetailIssues({ patch: { name: form.name, location: { district: form.district } } });
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+
+  const save = () => {
+    setTried(true);
+    if (Object.keys(issues).length) return;
+    dispatch({
+      type: 'UPDATE_DEVICE',
+      deviceId: device.id,
+      patch: {
+        name: form.name.trim(),
+        location: { ...device.location, district: form.district.trim(), sector: form.sector.trim() },
+      },
+    });
+    dispatch({ type: 'TOAST', msg: `${device.serial} — details updated.` });
+    onClose();
+  };
+
+  return (
+    <Modal title={`Edit ${device.serial}`} onClose={onClose}>
+      <Field label="Display name"><input value={form.name} onChange={set('name')} /></Field>
+      {tried && issues.name && <div className="warn-banner" role="alert">{issues.name}</div>}
+      <div className="grid cols-2" style={{ gap: 10 }}>
+        <Field label="District"><input value={form.district} onChange={set('district')} placeholder="e.g. Musanze" /></Field>
+        <Field label="Sector"><input value={form.sector} onChange={set('sector')} placeholder="e.g. Busogo" /></Field>
+      </div>
+      {tried && issues.district && <div className="warn-banner" role="alert">{issues.district}</div>}
+      <p className="muted small">The serial number is the permanent identifier and does not change. The name is what farmers and the fleet list read.</p>
+      <div className="btn-row">
+        <Btn variant="primary" onClick={save}>Save details</Btn>
+        <Btn onClick={onClose}>Cancel</Btn>
+      </div>
+    </Modal>
   );
 }
 

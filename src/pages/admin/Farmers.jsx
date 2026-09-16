@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../lib/store.jsx';
-import { churnRisk, subscriptionState } from '../../lib/services.js';
+import { churnRisk, farmerDetailIssues, subscriptionState } from '../../lib/services.js';
 import { Badge, Btn, Card, DataTable, EmptyState, Field, Modal } from '../../components/ui.jsx';
 import { fmtDate, fmtDateTime } from '../../lib/time.js';
 import { fmtMoney, t } from '../../i18n/strings.js';
@@ -14,6 +14,8 @@ export default function AdminFarmers() {
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = useState('all');
   const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [removeId, setRemoveId] = useState(null); // the system whose removal is being confirmed
   const now = new Date().toISOString();
 
   const farmers = useMemo(() => {
@@ -28,6 +30,19 @@ export default function AdminFarmers() {
 
   const devicesOf = (fid) => state.devices.filter((d) => d.farmerId === fid);
   const selected = id ? state.farmers.find((f) => f.id === id) : null;
+
+  /* Who owns a system is the console's to change, and "nobody" is one of the
+     answers: the system stays registered and keeps reporting - it is the farmer
+     it is taken off, who then stops seeing it. */
+  const reassign = (device, farmerId) => {
+    const to = farmerId ? state.farmers.find((f) => f.id === farmerId) : null;
+    dispatch({ type: 'ASSIGN_DEVICE', deviceId: device.id, farmerId: to ? to.id : null });
+    dispatch({
+      type: 'TOAST',
+      msg: to ? `${device.serial} moved to ${to.name}.` : `${device.serial} is no longer assigned to any farmer.`,
+    });
+    setRemoveId(null);
+  };
 
   return (
     <div>
@@ -73,6 +88,7 @@ export default function AdminFarmers() {
             </div>
             <div>
               <div className="btn-row" style={{ marginTop: 0 }}>
+                <Btn small variant="primary" onClick={() => setEditOpen(true)}>Edit details</Btn>
                 <Btn small variant="danger" onClick={() => { dispatch({ type: 'UPDATE_FARMER', id: selected.id, patch: { status: selected.status === 'active' ? 'inactive' : 'active' } }); dispatch({ type: 'TOAST', msg: 'Farmer status updated.' }); }}>
                   {selected.status === 'active' ? 'Deactivate' : 'Activate'}
                 </Btn>
@@ -81,11 +97,30 @@ export default function AdminFarmers() {
               </div>
               <h4 style={{ marginTop: 14 }}>Systems ({devicesOf(selected.id).length})</h4>
               {devicesOf(selected.id).map((d) => (
-                <div key={d.id} className="row-between" style={{ borderBottom: '1px solid var(--border)', padding: '6px 0' }}>
-                  <span><b>{d.serial}</b> — {d.name}</span>
-                  <Badge tone={d.subscription?.status === 'active' ? 'ok' : 'crit'}>{d.subscription?.status || 'none'}</Badge>
+                <div key={d.id} style={{ borderBottom: '1px solid var(--border)', padding: '6px 0' }}>
+                  <div className="row-between">
+                    <span><b>{d.serial}</b> — {d.name}</span>
+                    <Badge tone={d.subscription?.status === 'active' ? 'ok' : 'crit'}>{d.subscription?.status || 'none'}</Badge>
+                  </div>
+                  <div className="row" style={{ gap: 6, marginTop: 6, alignItems: 'center' }}>
+                    <label className="muted small" htmlFor={`owner-${d.id}`}>Owner</label>
+                    <select
+                      id={`owner-${d.id}`}
+                      className="field"
+                      style={{ width: 'auto', marginBottom: 0 }}
+                      value={d.farmerId || ''}
+                      onChange={(e) => reassign(d, e.target.value)}
+                    >
+                      <option value="">— Unassigned —</option>
+                      {state.farmers.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                    <Btn small variant="danger" onClick={() => setRemoveId(d.id)}>Remove from farmer</Btn>
+                  </div>
                 </div>
               ))}
+              {!devicesOf(selected.id).length && (
+                <div className="muted small">No system is assigned to this farmer. Register one, or give them one from the system's own page.</div>
+              )}
               <h4 style={{ marginTop: 14 }}>Recent payments</h4>
               {state.payments.filter((p) => p.farmerId === selected.id).slice(0, 4).map((p) => (
                 <div key={p.id} className="muted small">{fmtDateTime(p.createdAt)} · {fmtMoney(p.amount)} · {p.status}</div>
@@ -95,8 +130,90 @@ export default function AdminFarmers() {
         </Card>
       )}
 
+      {removeId && (() => {
+        const dev = state.devices.find((x) => x.id === removeId);
+        if (!dev) return null;
+        return (
+          <Modal title={`Remove ${dev.serial} from ${selected?.name}?`} onClose={() => setRemoveId(null)}>
+            <p>The system stays registered and keeps reporting — it is only taken off this farmer, who stops seeing it. You can give it to another farmer at any time.</p>
+            <div className="btn-row">
+              <Btn variant="primary" onClick={() => reassign(dev, null)}>Remove it</Btn>
+              <Btn onClick={() => setRemoveId(null)}>Keep it</Btn>
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {editOpen && selected && (
+        <EditFarmerModal farmer={selected} farmers={state.farmers} dispatch={dispatch} onClose={() => setEditOpen(false)} />
+      )}
+
       {addOpen && <AddFarmerModal dispatch={dispatch} onClose={() => setAddOpen(false)} />}
     </div>
+  );
+}
+
+/**
+ * A farmer's details, after they were registered.
+ *
+ * Everything the console needs to correct is here — the name, how to reach the
+ * farmer, and where the farm is. The phone number and the email address are
+ * checked with `farmerDetailIssues` because those two are the farmer's way IN:
+ * auth.js signs someone in by matching exactly them, so two farmers holding one
+ * address would mean the second to type it lands in the first one's account.
+ */
+function EditFarmerModal({ farmer, farmers, dispatch, onClose }) {
+  const [form, setForm] = useState({
+    name: farmer.name || '',
+    phone: farmer.phone || '',
+    email: farmer.email || '',
+    district: farmer.district || '',
+    sector: farmer.sector || '',
+  });
+  const [tried, setTried] = useState(false);
+  const issues = farmerDetailIssues({ patch: form, farmers, selfId: farmer.id });
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+
+  const save = () => {
+    setTried(true);
+    if (Object.keys(issues).length) return; // nothing is written until the details are usable
+    const name = form.name.trim();
+    dispatch({
+      type: 'UPDATE_FARMER',
+      id: farmer.id,
+      patch: {
+        name,
+        phone: form.phone.trim(),
+        email: form.email.trim().toLowerCase(),
+        district: form.district.trim(),
+        sector: form.sector.trim(),
+      },
+    });
+    dispatch({ type: 'TOAST', msg: `${name} — details updated.` });
+    onClose();
+  };
+
+  return (
+    <Modal title={`Edit ${farmer.name}`} onClose={onClose}>
+      <Field label="Full name"><input value={form.name} onChange={set('name')} /></Field>
+      {tried && issues.name && <div className="warn-banner" role="alert">{issues.name}</div>}
+      <div className="grid cols-2" style={{ gap: 10 }}>
+        <Field label="Phone"><input value={form.phone} onChange={set('phone')} /></Field>
+        <Field label="Email"><input value={form.email} onChange={set('email')} /></Field>
+      </div>
+      {tried && (issues.phone || issues.email || issues.identifier) && (
+        <div className="warn-banner" role="alert">{issues.phone || issues.email || issues.identifier}</div>
+      )}
+      <div className="grid cols-2" style={{ gap: 10 }}>
+        <Field label="District"><input value={form.district} onChange={set('district')} /></Field>
+        <Field label="Sector"><input value={form.sector} onChange={set('sector')} /></Field>
+      </div>
+      <p className="muted small">The phone number and the email address are how this farmer signs in — changing either changes their sign-in.</p>
+      <div className="btn-row">
+        <Btn variant="primary" onClick={save}>Save details</Btn>
+        <Btn onClick={onClose}>Cancel</Btn>
+      </div>
+    </Modal>
   );
 }
 

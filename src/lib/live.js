@@ -181,6 +181,12 @@ export function storeDeviceFromVm(vm, nowIso) {
  * Merge one live API VM into an existing store device. Telemetry always
  * comes from the real device; meta the user set locally (farmer, custom
  * name, location, an active paid plan) is preserved.
+ *
+ * An assignment the console made is kept even when it is "nobody": without
+ * `farmerSetLocally`, an unassigned device carries `farmerId: null`, which is
+ * indistinguishable from "this browser never said anything about the farmer" —
+ * and the API's row would put the old farmer straight back on the next poll, so
+ * an admin's Unassign would appear to do nothing.
  */
 export function overlayLiveDevice(device, vm, nowIso) {
   if (!device || !vm || !vm.id || device.id !== vm.id) return device;
@@ -194,6 +200,10 @@ export function overlayLiveDevice(device, vm, nowIso) {
   const userBatch = device.batch && device.batch.synth !== true;
   const endedBatch = device.batch && device.batch.status === 'ended';
   const keepBatch = userBatch || endedBatch;
+  // Whoever the console last put on this device stays on it, including nobody:
+  // a move or an unassignment made in the admin console must not be undone by
+  // the next poll reading the API's older registration back.
+  const assignedLocally = device.farmerSetLocally === true;
   // Mode + master switch: the operator's selection is shown while it stands,
   // but the UNIT's own report decides whether it has landed. Nothing is frozen —
   // an unconfirmed selection stays visible (and is retried, see
@@ -216,7 +226,9 @@ export function overlayLiveDevice(device, vm, nowIso) {
     id: device.id,
     serial: device.serial || device.id,
     name: keepName,
-    farmerId: device.farmerId !== undefined && device.farmerId !== null ? device.farmerId : live.farmerId,
+    farmerId: assignedLocally
+      ? (device.farmerId ?? null)
+      : (device.farmerId !== undefined && device.farmerId !== null ? device.farmerId : live.farmerId),
     location: device.location && device.location.district && device.location.district !== '—'
       ? device.location
       : live.location,

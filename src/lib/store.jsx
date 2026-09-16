@@ -319,6 +319,40 @@ function reducer(state, action) {
         { user: state.session?.name, role: state.session?.role, action: 'device.rename', details: `${action.deviceId} → ${action.name}` }
       );
 
+    /*
+     * Everything about a system the console may correct after registration:
+     * what it is called, and where it is. The serial is NOT in that list — it is
+     * the hardware's identity, it is the record's id, and it is what
+     * broodiinnox-api keys the device on, so a patch carrying one is dropped
+     * rather than applied. The farm size has its own action (SET_DEVICE_FARM_SIZE)
+     * because it is what the price is calculated from and it is audited as money.
+     */
+    case 'UPDATE_DEVICE': {
+      const dev = state.devices.find((d) => d.id === action.deviceId);
+      if (!dev) return state;
+      const patch = { ...(action.patch || {}) };
+      delete patch.id;
+      delete patch.serial;
+      const next = {
+        ...dev,
+        ...patch,
+        location: patch.location ? { ...dev.location, ...patch.location } : dev.location,
+      };
+      const changed = ['name', 'location'].filter((k) => JSON.stringify(dev[k] ?? null) !== JSON.stringify(next[k] ?? null));
+      if (!changed.length) return state;
+      return withAudit(
+        { ...state, devices: state.devices.map((d) => (d.id === dev.id ? next : d)) },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: 'device.update',
+          details: `${dev.serial}: ${changed.map((k) => `${k} → ${brief(next[k])}`).join(', ')}`,
+          prev: Object.fromEntries(changed.map((k) => [k, dev[k] ?? null])),
+          next: Object.fromEntries(changed.map((k) => [k, next[k] ?? null])),
+        }
+      );
+    }
+
     case 'RESTART_DEVICE': {
       const { deviceId } = action;
       const dev = state.devices.find((d) => d.id === deviceId);
@@ -697,11 +731,38 @@ function reducer(state, action) {
       };
     }
 
-    case 'ASSIGN_DEVICE':
+    /*
+     * Who owns a system is the console's to decide, and "nobody" is one of the
+     * decisions: a system taken off one farmer and not yet given to another is
+     * stored as `farmerId: null`, never `undefined` — live.js reads exactly that
+     * difference to know the console has spoken, and keeps an unassigned device
+     * unassigned instead of reading its old farmer back off the API on the next
+     * poll (see `farmerSetLocally`).
+     */
+    case 'ASSIGN_DEVICE': {
+      const dev = state.devices.find((d) => d.id === action.deviceId);
+      if (!dev) return state;
+      const from = state.farmers.find((f) => f.id === dev.farmerId) || null;
+      const to = state.farmers.find((f) => f.id === action.farmerId) || null;
+      const farmerId = to ? to.id : null;
+      if (farmerId === (dev.farmerId ?? null)) return state; // already whoever was asked for
       return withAudit(
-        { ...state, devices: state.devices.map((d) => (d.id === action.deviceId ? { ...d, farmerId: action.farmerId } : d)) },
-        { user: state.session?.name, role: state.session?.role, action: 'device.assign', details: `${action.deviceId} → farmer ${action.farmerId}` }
+        {
+          ...state,
+          devices: state.devices.map((d) => (d.id === dev.id ? { ...d, farmerId, farmerSetLocally: true } : d)),
+        },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: farmerId ? 'device.assign' : 'device.unassign',
+          details: farmerId
+            ? `${dev.serial} → ${to.name}${from ? ` (was ${from.name})` : ' (was unassigned)'}`
+            : `${dev.serial} removed from ${from ? from.name : 'nobody'} — now unassigned`,
+          prev: { farmerId: dev.farmerId ?? null },
+          next: { farmerId },
+        }
       );
+    }
 
     case 'LOCK_DEVICE':
       return withAudit(
@@ -717,11 +778,37 @@ function reducer(state, action) {
       );
     }
 
-    case 'UPDATE_FARMER':
+    /*
+     * A farmer's details after registration — their name, how to reach them, and
+     * where their farm is. The id and the creation date are what the record IS:
+     * devices hold `farmerId`, payments hold `farmerId`, tickets hold `farmerId`,
+     * so a patch that carried a new id would leave every one of those pointing at
+     * a farmer who no longer exists. They are dropped rather than applied.
+     *
+     * The audit names the fields that actually changed, so "updated farmer f1"
+     * never stands in for "changed the phone number they sign in with".
+     */
+    case 'UPDATE_FARMER': {
+      const farmer = state.farmers.find((f) => f.id === action.id);
+      if (!farmer) return state;
+      const patch = { ...(action.patch || {}) };
+      delete patch.id;
+      delete patch.createdAt;
+      const next = { ...farmer, ...patch };
+      const changed = Object.keys(patch).filter((k) => JSON.stringify(farmer[k] ?? null) !== JSON.stringify(next[k] ?? null));
+      if (!changed.length) return state;
       return withAudit(
-        { ...state, farmers: state.farmers.map((f) => (f.id === action.id ? { ...f, ...action.patch } : f)) },
-        { user: state.session?.name, role: state.session?.role, action: 'farmer.update', details: `Updated farmer ${action.id}` }
+        { ...state, farmers: state.farmers.map((f) => (f.id === action.id ? next : f)) },
+        {
+          user: state.session?.name,
+          role: state.session?.role,
+          action: 'farmer.update',
+          details: `${farmer.name}: ${changed.map((k) => `${k} → ${brief(next[k])}`).join(', ')}`,
+          prev: Object.fromEntries(changed.map((k) => [k, farmer[k] ?? null])),
+          next: Object.fromEntries(changed.map((k) => [k, next[k] ?? null])),
+        }
       );
+    }
 
     case 'ADD_TICKET': {
       const ticket = { id: uid('t'), status: 'new', assignee: null, messages: [], createdAt: nowIso(), ...action.ticket };
@@ -807,6 +894,12 @@ function reducer(state, action) {
     default:
       return state;
   }
+}
+
+/** A value short enough to read in an audit line, whatever shape it is. */
+function brief(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
 function withAudit(state, entry) {
@@ -1263,17 +1356,26 @@ export function StoreProvider({ children }) {
       }).catch(toastErr);
       return;
     }
-    if (action?.type === 'RENAME_DEVICE') {
-      // Keep the API registration name in sync with the app (POST /api/devices
-      // is an upsert), so Live Monitoring shows the SAME name as Systems.
+    /*
+     * What the console edits about a system's own record goes back to the API as
+     * the same registration upsert (POST /api/devices), so Live Monitoring shows
+     * the name, the location and the owner the console just set rather than the
+     * ones the server was first told. `stateRef` still holds the state from
+     * BEFORE this dispatch, so the values that changed are read from the action
+     * and only the untouched ones (the serial, the location for a rename) from it.
+     */
+    if (action?.type === 'RENAME_DEVICE' || action?.type === 'UPDATE_DEVICE' || action?.type === 'ASSIGN_DEVICE') {
       const dev = action.deviceId ? st.devices.find((d) => d.id === action.deviceId) : null;
       if (dev) {
-        const loc = typeof dev.location === 'string' ? dev.location : dev.location?.district || '';
+        const where = typeof dev.location === 'string' ? dev.location : dev.location?.district || '';
         api.registerDevice({
           device_id: dev.id,
-          name: action.name,
-          farmer_id: dev.farmerId || 'dev',
-          location: loc,
+          name: action.patch?.name ?? (action.type === 'RENAME_DEVICE' ? action.name : dev.name),
+          // 'dev' is this app's long-standing stand-in for a device with no
+          // farmer: the API's row always names an owner, and an unassigned
+          // system is put back under that name rather than left stale.
+          farmer_id: (action.type === 'ASSIGN_DEVICE' ? action.farmerId : dev.farmerId) || 'dev',
+          location: action.patch?.location?.district ?? where,
         }).catch(toastErr);
       }
       return;

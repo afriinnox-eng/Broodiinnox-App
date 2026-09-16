@@ -14,7 +14,7 @@ black, white) and the Afriinnox–Hanga 2026 business documentation.
 |---|---|---|
 | Focus | "How are my chicks doing right now?" | Every system, farmer, subscription, payment, device |
 | Monitoring | System cards, sensors, live temperature, history | Live grid, map view, device health, firmware |
-| Control | Targets, restart, time sync (with confirmations) | Register/assign/lock/restart devices remotely |
+| Control | Targets, restart, time sync (with confirmations) | Register, assign, edit, lock and restart devices remotely |
 | Business | Subscriptions, MTN MoMo payments, alerts | Plans, payments, revenue, reports, audit log |
 | Support | Help & support tickets | Ticket queue, bulk messaging, admin roles |
 | Extras | Brooding tips, onboarding checklist, language toggle | Maintenance, spare-parts inventory, churn risk, CSV export |
