@@ -131,7 +131,12 @@ h1, h2, h3, h4 { margin: 0 0 8px; line-height: 1.25; }
 code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 
 /* ===== layout ===== */
-.app-shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+/* The content column is minmax(0, 1fr) and never a bare 1fr: 1fr means
+   minmax(auto, 1fr), whose auto minimum lets anything that cannot shrink set the
+   column wider than its container - which is how a phone ended up with an 883px
+   page on a 390px screen. A wide table scrolls inside its own card instead. */
+.app-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+.shell-column { min-width: 0; }
 .sidebar {
   background: linear-gradient(180deg, var(--brand-blue) 0%, var(--brand-blue-dark) 100%);
   color: #fff; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px;
@@ -162,6 +167,16 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
   flex: 1; max-width: 420px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px;
   background: var(--surface-2); color: var(--text); font-size: 13px;
 }
+/* the search's own box: its width lives here rather than in an inline style, so the
+   phone breakpoint below can put it on its own row */
+.topbar-search-slot { position: relative; flex: 1; max-width: 420px; }
+
+/* Both start hidden. Declared after .icon-btn on purpose: same specificity, so
+   source order decides, and the phone breakpoint later in this file is what shows
+   them. An override written before .icon-btn would never apply at all. */
+.nav-toggle { display: none; }
+.nav-close { display: none; margin-left: auto; flex: none; }
+.nav-scrim { display: none; position: fixed; inset: 0; z-index: 110; background: rgba(6, 10, 22, 0.5); }
 .icon-btn {
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 999px; width: 38px; height: 38px; display: grid; place-items: center; cursor: pointer;
@@ -183,8 +198,45 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 980px) { .grid.cols-3, .grid.cols-4 { grid-template-columns: repeat(2, 1fr); } .app-shell { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; } }
-@media (max-width: 640px) { .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; } .main { padding: 14px; } }
+/* ===== the phone: the navigation is a drawer, not a wall =====
+   Below 980px the sidebar used to be stacked ABOVE the page (position: static),
+   so the whole menu sat between the top of the screen and the page itself: all 17
+   console items, 897px of them, with the page's own content starting at y=977 on a
+   664px screen. Every internal page had to be pulled into view before it could be
+   read. The sidebar is now taken out of the flow entirely and slides in over the
+   page when the button in the topbar asks for it, so a page's content is the first
+   thing on the screen as it opens. Measured on every internal route of both roles
+   by _pages_phone_probe.mjs, which is the only place that can see layout at all. */
+@media (max-width: 980px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .grid.cols-3, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; height: 100dvh; width: min(84vw, 300px);
+    z-index: 120; overflow-y: auto;
+    transform: translateX(-100%); visibility: hidden;
+    box-shadow: 0 0 40px rgba(4, 10, 30, 0.45);
+    transition: transform 0.22s ease, visibility 0.22s ease;
+  }
+  /* visibility and not only the transform: a drawer that is off the screen but
+     still in the tab order is a drawer a keyboard falls into. */
+  .sidebar.open { transform: none; visibility: visible; }
+  .nav-scrim { display: block; }
+  .nav-toggle { display: grid; }
+  .nav-close { display: grid; }
+  .main { padding: 16px 14px 40px; }
+}
+
+@media (max-width: 640px) {
+  .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: minmax(0, 1fr); }
+  .main { padding: 12px; }
+  /* One row of essentials, and the search takes the row below it rather than
+     pushing the row off the side of the screen. The theme toggle steps aside
+     because both Settings pages already carry one. */
+  .topbar { flex-wrap: wrap; padding: 8px 12px; gap: 8px; }
+  .topbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-search-slot { order: 9; flex: 1 1 100%; max-width: none; }
+  .topbar .icon-btn[title='Toggle theme'] { display: none; }
+}
 .stat { display: flex; flex-direction: column; gap: 4px; }
 .stat-value { font-size: 26px; font-weight: 800; }
 .stat-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }

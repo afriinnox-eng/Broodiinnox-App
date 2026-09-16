@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../lib/store.jsx';
 import { liveConfig } from '../lib/live.js';
@@ -21,12 +21,22 @@ const ADMIN_NAV = [
   ['maintenance', 'wrench'], ['inventory', 'box'], ['settings', 'sliders'],
 ];
 
-function NavSection({ section, items, base, lang }) {
+function NavSection({ section, items, base, lang, onNavigate }) {
   return (
     <>
       <div className="nav-section">{section}</div>
       {items.map(([key, icon]) => (
-        <NavLink key={key} to={`${base}/${key}`} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+        <NavLink
+          key={key}
+          to={`${base}/${key}`}
+          className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          /* On a phone this drawer covers the page it is opening onto, so choosing
+             a page has to close it. Closing on the CLICK rather than on the route
+             change is what covers the page you are already on: tapping the page you
+             are looking at changes no pathname, and on the pathname alone the menu
+             would stay open over it. */
+          onClick={onNavigate}
+        >
           <Icon name={icon} size={18} /> {t(`nav.${key}`, lang)}
         </NavLink>
       ))}
@@ -49,7 +59,9 @@ function GlobalSearch({ role }) {
   }, [q, state]);
   if (role !== 'admin') return null;
   return (
-    <div style={{ position: 'relative', flex: 1, maxWidth: 420 }}>
+    /* no inline width here on purpose: an inline style cannot be overridden by a
+       media query, and the phone breakpoint is what gives this its own row */
+    <div className="topbar-search-slot">
       <input className="topbar-search" placeholder={t('common.search', 'en')} value={q}
         onChange={(e) => { setQ(e.target.value); setOpen(true); }} onBlur={() => setTimeout(() => setOpen(false), 200)} />
       {open && results.length > 0 && (
@@ -114,9 +126,27 @@ export default function AppShell({ children }) {
 
   const lang = state.lang || 'en';
 
+  /* The navigation is a column on a desktop and a drawer on a phone. It is never
+     open on arrival: a page a farmer opens has to be the page on the screen, not
+     the menu over it. */
+  const [navOpen, setNavOpen] = useState(false);
+  const closeNav = () => setNavOpen(false);
+
+  /* Belt and braces to the click above: anything that navigates without a click -
+     the search dropdown, signing out - leaves no drawer behind either. */
+  useEffect(() => { setNavOpen(false); }, [location.pathname]);
+
+  /* Escape closes it, the way Escape closes everything else that covers a page. */
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
+
   return (
-    <div className={`app-shell ${role === 'admin' ? 'console' : 'farmer-app'}`}>
-      <aside className="sidebar">
+    <div className={`app-shell ${role === 'admin' ? 'console' : 'farmer-app'}${navOpen ? ' nav-open' : ''}`}>
+      <aside className={`sidebar${navOpen ? ' open' : ''}`} id="app-nav">
         <div className="brand">
           {/* alt empty on purpose: the wordmark beside it names the product and the maker */}
           <div className="brand-mark">
@@ -126,16 +156,38 @@ export default function AppShell({ children }) {
             <div className="brand-name">BROODIINNOX</div>
             <div className="brand-sub">by AFRIINNOX Ltd</div>
           </div>
+          {/* The drawer covers the button that opened it, so it carries its own way out */}
+          <button className="nav-close icon-btn" type="button" aria-label="Close" onClick={closeNav}>
+            <Icon name="close" size={16} />
+          </button>
         </div>
-        <NavSection section={role === 'admin' ? 'Afriinnox Admin' : 'Farmer App'} items={nav} base={base} lang={lang} />
+        <NavSection
+          section={role === 'admin' ? 'Afriinnox Admin' : 'Farmer App'}
+          items={nav}
+          base={base}
+          lang={lang}
+          onNavigate={closeNav}
+        />
         <div className="spacer" />
         <div className="nav-item" onClick={() => { dispatch({ type: 'LOGOUT' }); navigate('/'); }}>
           <Icon name="logout" size={18} /> {t('common.logout', lang)}
         </div>
       </aside>
-      <div>
+      {/* tapped anywhere off the drawer to put it away; fixed, so it is not a grid item */}
+      {navOpen && <div className="nav-scrim" onClick={closeNav} aria-hidden="true" />}
+      <div className="shell-column">
         <header className="topbar">
-          <b style={{ fontSize: 15, textTransform: 'capitalize' }}>{t(`nav.${section}`, lang)}</b>
+          <button
+            className="nav-toggle icon-btn"
+            type="button"
+            aria-label="Menu"
+            aria-expanded={navOpen}
+            aria-controls="app-nav"
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            <Icon name="menu" size={20} />
+          </button>
+          <b className="topbar-title" style={{ fontSize: 15, textTransform: 'capitalize' }}>{t(`nav.${section}`, lang)}</b>
           <GlobalSearch role={role} />
           <div className="spacer" />
           <select className="field" style={{ width: 'auto', padding: '7px 10px', borderRadius: 999, border: '1px solid var(--border)' }}
