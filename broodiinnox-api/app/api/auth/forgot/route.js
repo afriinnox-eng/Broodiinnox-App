@@ -21,7 +21,13 @@ import { emailForPhone } from '../login/route.js';
  * typing an address into a public form. An address with no contact here means
  * the farmers in question have not been registered on the server yet.
  *
- * 202 always (except a malformed body) · 400 not JSON
+ * 202 when the request was looked at · 400 not JSON · 503 the server has no
+ * mailbox, so nothing could be delivered to anyone.
+ *
+ * That last one exists because its absence is what made this bug invisible: the
+ * deployed API had no SMTP credentials, every send was recorded as "skipped",
+ * and the screen still said a link was on its way. A server that cannot send an
+ * email must say so rather than let someone wait for one.
  */
 export async function POST(request) {
   const { store } = await ensureReady();
@@ -42,6 +48,18 @@ export async function POST(request) {
   const who = normalizeIdentifier(typed);
   if (who.kind === 'none') return badRequest('An email address or phone number is required.');
 
+  /* No mailbox means no reset link can reach anybody, whoever asks. Refusing
+     here is a server-wide condition, not a fact about the address typed, so it
+     keeps the promise this route makes: an address with an account and one
+     without get the same answer. */
+  const mailer = getMailer();
+  if (!mailer.enabled) {
+    return json({
+      error: 'This server cannot send email right now, so the reset link cannot be delivered.',
+      reason: 'mail-not-configured',
+    }, 503);
+  }
+
   const email = who.kind === 'email' ? who.value : await emailForPhone(store, who.phone);
 
   // A phone nobody registered resolves to nothing, and that is answered with
@@ -49,7 +67,7 @@ export async function POST(request) {
   if (email) {
     await requestPasswordReset({
       store,
-      mailer: getMailer(),
+      mailer,
       email,
       requireContact: false, // never say whether this address is known
     });
