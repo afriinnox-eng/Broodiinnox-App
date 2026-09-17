@@ -26,6 +26,12 @@ black, white) and the Afriinnox–Hanga 2026 business documentation.
 - **Farmers** — sign in with the email address or the phone number they were
   registered with.
 
+Both sign-in (a one-time code by email) and **Forgot password?** (a single-use
+reset link, valid 60 minutes) send mail from the server, so they need a mailbox
+or a provider key configured on `broodiinnox-api` — see its README's Environment
+section. With no mail configured the server says so plainly instead of promising
+a link that will never arrive.
+
 There are no demo shortcuts on the login page, and no password is published here.
 
 The app ships with no demonstration fleet. What it starts from is the one console

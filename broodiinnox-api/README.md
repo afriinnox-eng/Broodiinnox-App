@@ -70,6 +70,25 @@ node scripts/smoke-api.mjs
 | `EKOPAY_COUNTRY_CODE` | `250` | Used to normalize the payer's and the merchant number to MSISDNs. |
 | `EKOPAY_MIN_AMOUNT` | `50` | The gateway's own floor; a smaller request is refused before it is sent. |
 | `EKOPAY_TIMEOUT_MS` | `20000` | How long to wait for Ekorana to answer. A timeout is not a refusal: the payment stays pending and the poll asks again. |
+| `MAIL_HTTP_PROVIDER` | inferred from the key | `resend` or `brevo` — the HTTPS route mail takes, and the preferred one whenever a key is present. |
+| `MAIL_HTTP_API_KEY` | *(empty)* | The provider's API key. `RESEND_API_KEY` / `BREVO_API_KEY` work too; a bare `MAIL_HTTP_API_KEY` is taken as Resend. |
+| `SMTP_HOST` | `mail.privateemail.com` | The mailbox used when no provider key is set. |
+| `SMTP_PORT` / `SMTP_SECURE` | `465` / `true` | Implicit SSL. `587` with `SMTP_SECURE=false` is STARTTLS. |
+| `SMTP_USER` / `SMTP_PASSWORD` | *(empty)* | The full mailbox address, and its password. |
+| `MAIL_FROM` / `MAIL_FROM_NAME` | the mailbox / `Broodiinnox` | The `From` header. With an HTTPS provider this must be on a domain verified **at that provider**. |
+| `MAIL_OPS_TO` | the `From` address | Where alerts about a unit nobody owns are sent. |
+| `APP_BASE_URL` | `https://broodiinnox-app.onrender.com` | The app a password-reset link points at. |
+| `MAIL_TIMEOUT_MS` | `15000` | How long one send may take before it is abandoned. |
+
+> **Email needs a mailbox or a provider key — and on Render's free instance type
+> it needs the key.** Free Render web services block outbound traffic to SMTP
+> ports `25`, `465` and `587`, so a perfectly correct mailbox with correct
+> credentials still times out, and nothing in the logs says "blocked" — it says
+> `Connection timeout`. A provider key sends over HTTPS on 443 and is unaffected.
+> Which route is live is reported as `mail.transport` by `GET /api/health`, and
+> every attempt — sent, skipped or failed, with the provider's own reason — is in
+> `email_log`, readable through `GET /api/emails`. A send that could not leave is
+> recorded there as `skipped`/`failed`, never as a success.
 
 > **Payments need the Ekorana API key and merchant number.** Without them the
 > server still serves everything else; `POST /api/payments` answers `503` naming
