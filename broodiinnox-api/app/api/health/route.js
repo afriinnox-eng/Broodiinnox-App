@@ -4,6 +4,7 @@ import { ensureReady } from '../../../lib/server.js';
 import { DEFAULT_TOPIC_PREFIX } from '../../../lib/constants.js';
 import { describeEkopayConfig, resolveEkopayConfig } from '../../../lib/ekopay.js';
 import { describeMailConfig, resolveMailConfig } from '../../../lib/mail.js';
+import { paymentSweeperReport } from '../../../lib/paymentSweeper.js';
 
 export async function GET() {
   const { store, bridge } = await ensureReady();
@@ -31,6 +32,11 @@ export async function GET() {
     // Whether notifications can actually be delivered, and which env vars are
     // still to be set (names only — never the mailbox password).
     mail: describeMailConfig(resolveMailConfig(process.env)),
+    // The autonomous half of the payment flow: how often it runs and what it
+    // has settled or unlocked since this process started. `running: false`
+    // here is the answer to "why has a paid unit not unlocked itself?" — see
+    // lib/paymentSweeper.js.
+    payment_sweeper: paymentSweeperReport(),
   });
 }
 

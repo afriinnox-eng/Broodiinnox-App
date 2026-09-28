@@ -13,8 +13,9 @@ import { createServer } from 'node:http';
 import next from 'next';
 import { WebSocketServer } from 'ws';
 import { getWsHub } from '../lib/wsHub.js';
-import { getBridge, getStore } from '../lib/server.js';
+import { getBridge, getMailer, getStore } from '../lib/server.js';
 import { authorizeToken } from '../lib/auth.js';
+import { startPaymentSweeper } from '../lib/paymentSweeper.js';
 
 // dev only when asked with --dev (or NODE_ENV=development); everything else is prod
 const dev = process.argv.includes('--dev') || process.env.NODE_ENV === 'development';
@@ -31,6 +32,12 @@ await app.prepare();
 const store = await getStore();
 const bridge = await getBridge();
 const hub = getWsHub();
+
+// The autonomous half of the payment flow: a payment the gateway has collected
+// unlocks its unit even when Ekorana's callback never arrives and nobody has the
+// dashboard open. See lib/paymentSweeper.js — one sweeper per process, started
+// here so it runs for the life of the deployed service.
+const sweeper = startPaymentSweeper({ store, bridge, mailer: getMailer() });
 
 const server = createServer((req, res) => handle(req, res));
 const wss = new WebSocketServer({ noServer: true });
@@ -114,6 +121,11 @@ wss.on('close', () => clearInterval(heartbeat));
 
 server.listen(port, hostname, () => {
   console.log(`[broodiinnox-api] ready on http://${hostname}:${port} (${dev ? 'dev' : 'prod'}, storage=${store.mode}, ws=/ws)`);
+  if (sweeper.running) {
+    console.log(`[broodiinnox-api] payment sweeper every ${sweeper.status.interval_ms}ms — a paid unit unlocks without anyone asking`);
+  } else {
+    console.log(`[broodiinnox-api] payment sweeper OFF${sweeper.status.disabled_reason ? ` (${sweeper.status.disabled_reason})` : ''}`);
+  }
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

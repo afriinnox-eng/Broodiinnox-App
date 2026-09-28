@@ -70,6 +70,8 @@ node scripts/smoke-api.mjs
 | `EKOPAY_COUNTRY_CODE` | `250` | Used to normalize the payer's and the merchant number to MSISDNs. |
 | `EKOPAY_MIN_AMOUNT` | `50` | The gateway's own floor; a smaller request is refused before it is sent. |
 | `EKOPAY_TIMEOUT_MS` | `20000` | How long to wait for Ekorana to answer. A timeout is not a refusal: the payment stays pending and the poll asks again. |
+| `PAYMENT_SWEEP_INTERVAL_MS` | `15000` | How often the payment sweeper runs — the loop that settles a payment and unlocks its unit with nobody watching. See *The sweeper* below. |
+| `PAYMENT_SWEEP_DISABLED` | *(empty)* | `1`/`true` turns the sweeper off. Only useful for debugging: with it off, a paid unit unlocks on Ekorana's callback or when somebody reads the payment. |
 | `MAIL_HTTP_PROVIDER` | inferred from the key | `resend` or `brevo` — the HTTPS route mail takes, and the preferred one whenever a key is present. |
 | `MAIL_HTTP_API_KEY` | *(empty)* | The provider's API key. `RESEND_API_KEY` / `BREVO_API_KEY` work too; a bare `MAIL_HTTP_API_KEY` is taken as Resend. |
 | `SMTP_HOST` | `mail.privateemail.com` | The mailbox used when no provider key is set. |
@@ -109,7 +111,7 @@ All responses are JSON. `X-API-Key` header required once `API_KEYS` is set.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/health` | Service, MQTT and storage status. |
+| `GET /api/health` | Service, MQTT, storage, gateway and **payment-sweeper** status. |
 | `GET /api/devices` | Every known unit with live state + online/offline liveness. |
 | `POST /api/devices` | Register a unit: `{ device_id, name?, farmer_id?, location? }`. |
 | `GET /api/devices/:id` | One unit: registry + latest state, `online`/`stale`. |
@@ -159,6 +161,12 @@ curl -X POST localhost:3001/api/devices/BROODIINNOX-002/commands \
 
 curl 'localhost:3001/api/devices/BROODIINNOX-002/readings?limit=5' | jq '.readings[0]'
 ```
+
+> **A locked unit unlocks itself once it has paid — nobody presses anything.**
+> `device_active=ACTIVE` is sent by the payment flow the moment the gateway
+> confirms the money (see *The sweeper* below), and by nothing else — a second
+> admin command is the only thing that deliberately stands, until a new payment
+> arrives.
 
 ## Payments — MTN Mobile Money, through the Ekorana gateway (Ekopay)
 
@@ -215,6 +223,53 @@ amount it collected is the amount requested.** Concretely:
 * Only a confirmed payment unlocks hardware, and only a unit that is actually
   locked — see `unlockDeviceAfterPayment()`.
 
+### The sweeper — a paid unit unlocks with nobody watching
+
+A confirmed payment unlocks its unit on three occasions: Ekorana's callback, a
+read of the payment (the farmer opening the app), and the **payment sweeper**.
+The first two need something else to happen first — the callback has to arrive
+(the gateway retries at 30 s, 60 s and 120 s and then stops), and a read only
+happens while somebody has the dashboard open. The sweeper, started once per
+process in `scripts/server.js` (`lib/paymentSweeper.js`), is what makes the
+unlock a guarantee instead of a hope:
+
+* **it settles** every payment the gateway still owes an answer for — pending,
+  or failed for want of an answer — by asking `/payment/status/…` again and
+  applying what it says. Nothing else can confirm a payment and this changes
+  nothing about that: the sweeper asks, the gateway decides.
+* **it unlocks** any unit that reports itself `LOCKED` and is owed an unlock — a
+  confirmed payment newer than the last `device_active=LOCKED` command on
+  record, inside a 24-hour delivery window — by sending `device_active=ACTIVE`
+  again. That covers the cases that used to leave a paying farmer locked out: a
+  bridge that was down when the payment was confirmed, a GSM unit that was
+  offline at the time (this hardware keeps `device_locked` in NVS, so it comes
+  back locked), or a free instance that was asleep.
+
+The lines it will not cross, all of them tested in `test/payment-sweeper.test.js`:
+
+* a lock **commanded after** the payment is a decision, not an accident — an
+  admin's Lock is never undone behind their back (the last
+  `device_active=LOCKED` in the command ledger wins over an older payment);
+* a paid period that has **run out** stays locked; only a *new* payment unlocks
+  it, which is what keeps the kill-switch meaningful;
+* a unit that reports itself unlocked is never sent anything, and a unit whose
+  unlock has not landed yet is re-tried at most once every five minutes rather
+  than every 15 seconds;
+* a gateway that will not answer leaves the payment exactly where it was.
+
+Each sweep writes a line to the log only when there was something to say
+(`[payments] sweep checked=… settled=… unlocked=…`), and `GET /api/health`
+reports `payment_sweeper` — `running`, `last_run_at`, and what it has settled
+and unlocked since boot. That field, not an inference, is how "did the sweeper
+run?" is answered.
+
+> **On Render's free instance type the service is stopped when idle, so the
+> sweeper only runs while it is awake.** An incoming callback wakes it, and the
+> first sweep after boot settles whatever it slept through — but a payment whose
+> callback never arrives and whose service never wakes still waits for the next
+> request. A paid instance type (or any keep-alive that touches the service) is
+> what makes the loop continuous.
+
 ### Going live
 
 1. Ask Ekorana for your **API key**, and confirm the **merchant MTN number** the
@@ -253,6 +308,7 @@ lib/server.js                process-wide singletons (store + bridge)
 lib/ekopay.js                 Ekorana gateway client + env config (the API key stays here)
 lib/payments.js              payment records, validation and the rules that confirm them
 lib/paymentFlow.js           request / status / callback — the flow the routes call
+lib/paymentSweeper.js        the autonomous half: settle, then unlock, with nobody watching
 sql/schema.sql               CockroachDB DDL (server self-provisions too)
 test/                        node:test invariant suites (no external deps)
 scripts/verify.mjs           one-command syntax + invariant check
@@ -262,8 +318,9 @@ scripts/ekopay-check.mjs     ask Ekorana itself whether the key in the env works
 Test files: `test/commands.test.js`, `test/ingest.test.js`, `test/store.test.js`,
 `test/ekopay.test.js` (the gateway client against a fake gateway),
 `test/ekopay-check.test.js` (the CLI's exit codes), `test/payments.test.js` (the
-money rules) and `test/payment-flow.test.js` (the whole journey against the
-in-memory store). `scripts/smoke-api.mjs` boots the production server with a
+money rules), `test/payment-flow.test.js` (the whole journey against the
+in-memory store) and `test/payment-sweeper.test.js` (the same journey with
+everybody's back turned). `scripts/smoke-api.mjs` boots the production server with a
 stub Ekorana gateway and drives a real payment over HTTP: request → pending →
 wrong amount refused → confirmed → unit unlocked → forged callback refused.
 
